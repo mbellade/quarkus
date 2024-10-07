@@ -10,13 +10,17 @@ import org.hibernate.bytecode.spi.ReflectionOptimizer;
 import org.hibernate.property.access.spi.PropertyAccess;
 
 import io.quarkus.hibernate.orm.runtime.customized.QuarkusRuntimeProxyFactoryFactory;
+import io.quarkus.hibernate.orm.runtime.reflection.ReflectionOptimizerDefinitions;
 
 final class RuntimeBytecodeProvider implements BytecodeProvider {
 
     private final QuarkusRuntimeProxyFactoryFactory statefulProxyFactory;
+    private final ReflectionOptimizerDefinitions optimizerDefinitions;
 
-    public RuntimeBytecodeProvider(QuarkusRuntimeProxyFactoryFactory statefulProxyFactory) {
+    public RuntimeBytecodeProvider(QuarkusRuntimeProxyFactoryFactory statefulProxyFactory,
+            ReflectionOptimizerDefinitions optimizerDefinitions) {
         this.statefulProxyFactory = statefulProxyFactory;
+        this.optimizerDefinitions = optimizerDefinitions;
     }
 
     @Override
@@ -30,12 +34,12 @@ final class RuntimeBytecodeProvider implements BytecodeProvider {
             String[] getterNames,
             String[] setterNames,
             Class[] types) {
-        return null;
+        return optimizerDefinitions.getReflectionOptimizerForClass(clazz);
     }
 
     @Override
     public ReflectionOptimizer getReflectionOptimizer(Class<?> clazz, Map<String, PropertyAccess> propertyAccessMap) {
-        return null;
+        return optimizerDefinitions.getReflectionOptimizerForClass(clazz);
     }
 
     @Override

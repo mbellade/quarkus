@@ -24,6 +24,7 @@ public final class LazyBytecodeProvider implements Supplier<BytecodeProviderImpl
     public void close() {
         if (bytecodeProvider != null) {
             bytecodeProvider.resetCaches();
+            bytecodeProvider = null;
         }
     }
 }
