@@ -23,6 +23,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.StringTokenizer;
@@ -32,6 +33,7 @@ import java.util.stream.Collectors;
 import jakarta.persistence.PersistenceException;
 import jakarta.persistence.spi.PersistenceUnitTransactionType;
 
+import org.hibernate.HibernateException;
 import org.hibernate.boot.CacheRegionDefinition;
 import org.hibernate.boot.MetadataBuilder;
 import org.hibernate.boot.MetadataSources;
@@ -43,8 +45,10 @@ import org.hibernate.boot.model.process.spi.ManagedResources;
 import org.hibernate.boot.model.process.spi.MetadataBuildingProcess;
 import org.hibernate.boot.registry.StandardServiceRegistry;
 import org.hibernate.boot.registry.classloading.spi.ClassLoaderService;
+import org.hibernate.boot.registry.selector.spi.StrategySelector;
 import org.hibernate.boot.spi.MetadataBuilderContributor;
 import org.hibernate.boot.spi.MetadataBuilderImplementor;
+import org.hibernate.bytecode.spi.ReflectionOptimizer;
 import org.hibernate.cache.internal.CollectionCacheInvalidator;
 import org.hibernate.cfg.AvailableSettings;
 import org.hibernate.dialect.Dialect;
@@ -58,6 +62,15 @@ import org.hibernate.jpa.boot.spi.PersistenceUnitDescriptor;
 import org.hibernate.jpa.boot.spi.TypeContributorList;
 import org.hibernate.jpa.internal.util.LogHelper;
 import org.hibernate.jpa.internal.util.PersistenceUnitTransactionTypeHelper;
+import org.hibernate.mapping.Backref;
+import org.hibernate.mapping.IndexBackref;
+import org.hibernate.mapping.PersistentClass;
+import org.hibernate.mapping.Property;
+import org.hibernate.property.access.internal.PropertyAccessStrategyBackRefImpl;
+import org.hibernate.property.access.internal.PropertyAccessStrategyIndexBackRefImpl;
+import org.hibernate.property.access.spi.BuiltInPropertyAccessStrategies;
+import org.hibernate.property.access.spi.PropertyAccess;
+import org.hibernate.property.access.spi.PropertyAccessStrategy;
 import org.hibernate.resource.jdbc.spi.PhysicalConnectionHandlingMode;
 import org.hibernate.resource.transaction.backend.jdbc.internal.JdbcResourceLocalTransactionCoordinatorBuilderImpl;
 import org.hibernate.resource.transaction.backend.jta.internal.JtaTransactionCoordinatorBuilderImpl;
@@ -68,6 +81,7 @@ import org.infinispan.quarkus.hibernate.cache.QuarkusInfinispanRegionFactory;
 
 import io.quarkus.hibernate.orm.runtime.BuildTimeSettings;
 import io.quarkus.hibernate.orm.runtime.IntegrationSettings;
+import io.quarkus.hibernate.orm.runtime.LazyBytecodeProvider;
 import io.quarkus.hibernate.orm.runtime.boot.xml.RecordableXmlMapping;
 import io.quarkus.hibernate.orm.runtime.integration.HibernateOrmIntegrationStaticDescriptor;
 import io.quarkus.hibernate.orm.runtime.integration.HibernateOrmIntegrationStaticInitListener;
@@ -425,12 +439,101 @@ public class FastBootMetadataBuilder {
 
         Dialect dialect = extractDialect();
         PrevalidatedQuarkusMetadata storeableMetadata = trimBootstrapMetadata(fullMeta);
+        ProxyDefinitions proxyClassDefinitions;
+        try (LazyBytecodeProvider lazyBytecode = new LazyBytecodeProvider()) {
+            proxyClassDefinitions = ProxyDefinitions.createFromMetadata(storeableMetadata, preGeneratedProxies, lazyBytecode);
+            // todo marco : store this as recorded state (like we do for ProxyDefinitions) and pass it to RuntimeBytecodeProvider
+            createReflectionOptimizers(storeableMetadata, lazyBytecode);
+        }
+
         //Make sure that the service is destroyed after the metadata has been validated and trimmed, as validation needs to use it.
         destroyServiceRegistry();
-        ProxyDefinitions proxyClassDefinitions = ProxyDefinitions.createFromMetadata(storeableMetadata, preGeneratedProxies);
         return new RecordedState(dialect, storeableMetadata, buildTimeSettings, getIntegrators(),
                 providedServices, integrationSettingsBuilder.build(), proxyClassDefinitions, multiTenancyStrategy,
                 isReactive, fromPersistenceXml);
+    }
+
+    private Map<String, ReflectionOptimizer> createReflectionOptimizers(PrevalidatedQuarkusMetadata storeableMetadata, LazyBytecodeProvider lazyBytecode) {
+        // todo marco : are the properties in a stable state at this point?
+        StrategySelector strategySelector = storeableMetadata.getBootstrapContext().getServiceRegistry()
+                .getService(StrategySelector.class);
+        Map<String, ReflectionOptimizer> optimizerMap = new HashMap<>();
+        for (PersistentClass pc : storeableMetadata.getEntityBindings()) {
+            final Class<?> mappedClass = pc.getMappedClass();
+
+            // todo marco : building this is duplicating work that will be done during Hibernate final bootstrap
+            //  maybe we can avoid doing it? I'm not sure
+            Map<String, PropertyAccess> propertyAccessMap = new HashMap<>();
+            for (Property property : pc.getPropertyClosure()) {
+                propertyAccessMap.put(property.getName(), makePropertyAccess(property, mappedClass, strategySelector));
+            }
+            ReflectionOptimizer reflectionOptimizer = lazyBytecode.get().getReflectionOptimizer(mappedClass,
+                    propertyAccessMap);
+            optimizerMap.put(mappedClass.getName(), reflectionOptimizer);
+
+            // todo marco : this block should be deleted, it's just temporary tests
+            if (reflectionOptimizer != null) {
+                ReflectionOptimizer.InstantiationOptimizer instantiationOptimizer = reflectionOptimizer
+                        .getInstantiationOptimizer();
+                ReflectionOptimizer.AccessOptimizer accessOptimizer = reflectionOptimizer.getAccessOptimizer();
+
+                Object instance = null;
+                if ( instantiationOptimizer != null ) {
+                    instance = instantiationOptimizer.newInstance();
+                }
+                if ( accessOptimizer != null ) {
+                    final String[] propertyNames = accessOptimizer.getPropertyNames();
+                    if ( instance != null ) {
+                        final Object[] propertyValues = accessOptimizer.getPropertyValues(instance);
+                        assert propertyValues != null;
+                    }
+                }
+            }
+        }
+
+        // todo marco : do the same for embeddables
+        //  problem: polymorphic embeddables have some custom logic
+        //  solution: unify creation of property access map in public-static method within Hibernate?
+
+        return optimizerMap;
+    }
+
+    private PropertyAccess makePropertyAccess(Property bootAttributeDescriptor, Class<?> mappedClass,
+            StrategySelector strategySelector) {
+        PropertyAccessStrategy strategy = bootAttributeDescriptor.getPropertyAccessStrategy(mappedClass);
+
+        if (strategy == null) {
+            final String propertyAccessorName = bootAttributeDescriptor.getPropertyAccessorName();
+            if (StringHelper.isNotEmpty(propertyAccessorName)) {
+                // handle explicitly specified attribute accessor
+                strategy = strategySelector.resolveStrategy(PropertyAccessStrategy.class, propertyAccessorName);
+            } else {
+                if (bootAttributeDescriptor instanceof Backref) {
+                    final Backref backref = (Backref) bootAttributeDescriptor;
+                    strategy = new PropertyAccessStrategyBackRefImpl(backref.getCollectionRole(), backref
+                            .getEntityName());
+                } else if (bootAttributeDescriptor instanceof IndexBackref) {
+                    final IndexBackref indexBackref = (IndexBackref) bootAttributeDescriptor;
+                    strategy = new PropertyAccessStrategyIndexBackRefImpl(
+                            indexBackref.getCollectionRole(),
+                            indexBackref.getEntityName());
+                } else {
+                    // for now...
+                    strategy = BuiltInPropertyAccessStrategies.MIXED.getStrategy();
+                }
+            }
+        }
+
+        if (strategy == null) {
+            throw new HibernateException(
+                    String.format(
+                            Locale.ROOT,
+                            "Could not resolve PropertyAccess for attribute `%s#%s`",
+                            mappedClass.getName(),
+                            bootAttributeDescriptor.getName()));
+        }
+
+        return strategy.buildPropertyAccess(mappedClass, bootAttributeDescriptor.getName(), true);
     }
 
     private void destroyServiceRegistry() {
