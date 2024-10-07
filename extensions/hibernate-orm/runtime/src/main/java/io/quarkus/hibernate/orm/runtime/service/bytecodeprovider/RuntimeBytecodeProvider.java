@@ -1,5 +1,7 @@
 package io.quarkus.hibernate.orm.runtime.service.bytecodeprovider;
 
+import static io.quarkus.hibernate.orm.runtime.service.bytecodeprovider.QuarkusRuntimeBytecodeProviderInitiator.INSTANTIATOR_SUFFIX;
+
 import java.util.Map;
 
 import org.hibernate.bytecode.enhance.spi.EnhancementContext;
@@ -10,17 +12,13 @@ import org.hibernate.bytecode.spi.ReflectionOptimizer;
 import org.hibernate.property.access.spi.PropertyAccess;
 
 import io.quarkus.hibernate.orm.runtime.customized.QuarkusRuntimeProxyFactoryFactory;
-import io.quarkus.hibernate.orm.runtime.optimizers.InstantiatorDefinitions;
 
 final class RuntimeBytecodeProvider implements BytecodeProvider {
 
     private final QuarkusRuntimeProxyFactoryFactory statefulProxyFactory;
-    private final InstantiatorDefinitions instantiatorDefinitions;
 
-    public RuntimeBytecodeProvider(QuarkusRuntimeProxyFactoryFactory statefulProxyFactory,
-            InstantiatorDefinitions instantiatorDefinitions) {
+    public RuntimeBytecodeProvider(QuarkusRuntimeProxyFactoryFactory statefulProxyFactory) {
         this.statefulProxyFactory = statefulProxyFactory;
-        this.instantiatorDefinitions = instantiatorDefinitions;
     }
 
     @Override
@@ -39,25 +37,24 @@ final class RuntimeBytecodeProvider implements BytecodeProvider {
 
     @Override
     public ReflectionOptimizer getReflectionOptimizer(Class<?> clazz, Map<String, PropertyAccess> propertyAccessMap) {
-        InstantiatorDefinitions.InstantiatorHolder holder = instantiatorDefinitions.getOptimizers().get(clazz.getName());
-        if (holder != null) {
-            try {
-                ReflectionOptimizer.InstantiationOptimizer optimizer = (ReflectionOptimizer.InstantiationOptimizer) holder
-                        .getConstructor().newInstance();
-                return new ReflectionOptimizer() {
-                    @Override
-                    public InstantiationOptimizer getInstantiationOptimizer() {
-                        return optimizer;
-                    }
+        try {
+            Class<?> instantiatorClass = Class.forName(clazz.getName() + INSTANTIATOR_SUFFIX, true,
+                    Thread.currentThread().getContextClassLoader());
+            ReflectionOptimizer.InstantiationOptimizer optimizer = (ReflectionOptimizer.InstantiationOptimizer) instantiatorClass
+                    .getDeclaredConstructor().newInstance();
+            return new ReflectionOptimizer() {
+                @Override
+                public InstantiationOptimizer getInstantiationOptimizer() {
+                    return optimizer;
+                }
 
-                    @Override
-                    public AccessOptimizer getAccessOptimizer() {
-                        return null;
-                    }
-                };
-            } catch (Exception e) {
-                // ignored
-            }
+                @Override
+                public AccessOptimizer getAccessOptimizer() {
+                    return null;
+                }
+            };
+        } catch (Exception e) {
+            // ignored
         }
         return null;
     }

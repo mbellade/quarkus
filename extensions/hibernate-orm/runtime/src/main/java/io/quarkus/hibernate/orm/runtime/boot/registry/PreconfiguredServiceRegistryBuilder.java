@@ -159,7 +159,7 @@ public class PreconfiguredServiceRegistryBuilder {
         //Enforces no bytecode enhancement will happen at runtime,
         //but allows use of proxies generated at build time
         serviceInitiators
-                .add(new QuarkusRuntimeBytecodeProviderInitiator(statefulProxyFactory, rs.getInstantiatorDefinitions()));
+                .add(new QuarkusRuntimeBytecodeProviderInitiator(statefulProxyFactory));
 
         //Routes to the standard implementation, but w/o allowing configuration options to override it
         serviceInitiators.add(QuarkusMutationExecutorServiceInitiator.INSTANCE);

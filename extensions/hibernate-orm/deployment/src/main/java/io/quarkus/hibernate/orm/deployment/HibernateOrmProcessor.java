@@ -3,7 +3,7 @@ package io.quarkus.hibernate.orm.deployment;
 import static io.quarkus.deployment.annotations.ExecutionTime.RUNTIME_INIT;
 import static io.quarkus.deployment.annotations.ExecutionTime.STATIC_INIT;
 import static io.quarkus.hibernate.orm.deployment.HibernateConfigUtil.firstPresent;
-import static io.quarkus.hibernate.orm.runtime.optimizers.InstantiatorDefinitions.INSTANTIATOR_SUFFIX;
+import static io.quarkus.hibernate.orm.runtime.service.bytecodeprovider.QuarkusRuntimeBytecodeProviderInitiator.INSTANTIATOR_SUFFIX;
 import static org.hibernate.cfg.AvailableSettings.JAKARTA_SHARED_CACHE_MODE;
 import static org.hibernate.cfg.AvailableSettings.USE_DIRECT_REFERENCE_CACHE_ENTRIES;
 import static org.hibernate.cfg.AvailableSettings.USE_QUERY_CACHE;
@@ -113,7 +113,6 @@ import io.quarkus.deployment.recording.RecorderContext;
 import io.quarkus.deployment.util.IoUtil;
 import io.quarkus.deployment.util.ServiceUtil;
 import io.quarkus.gizmo.ClassCreator;
-import io.quarkus.gizmo.ClassOutput;
 import io.quarkus.gizmo.MethodCreator;
 import io.quarkus.gizmo.MethodDescriptor;
 import io.quarkus.gizmo.ResultHandle;
@@ -628,22 +627,18 @@ public final class HibernateOrmProcessor {
         GeneratedClassGizmoAdaptor classOutput = new GeneratedClassGizmoAdaptor(generatedClasses, true);
         for (String i : jpaModel.getManagedClassNames()) {
             ClassInfo classInfo = index.getIndex().getClassByName(i);
-            if (classInfo.hasNoArgsConstructor()) {
-                createInstantiationOptimizer(classInfo, classOutput);
+            if (classInfo != null && !classInfo.isAbstract() && classInfo.hasNoArgsConstructor()) {
+                String className = classInfo.name() + INSTANTIATOR_SUFFIX;
+                try (ClassCreator classCreator = ClassCreator.builder().classOutput(classOutput)
+                        .interfaces(ReflectionOptimizer.InstantiationOptimizer.class).className(className).build()) {
+                    MethodCreator method = classCreator
+                            .getMethodCreator("newInstance", Object.class)
+                            .setModifiers(ACC_PUBLIC);
+                    ResultHandle constructorHandle = method
+                            .newInstance(MethodDescriptor.ofConstructor(classInfo.name().toString()));
+                    method.returnValue(constructorHandle);
+                }
             }
-        }
-    }
-
-    private void createInstantiationOptimizer(ClassInfo classInfo,
-            ClassOutput classOutput) {
-        String className = classInfo.name() + INSTANTIATOR_SUFFIX;
-        try (ClassCreator classCreator = ClassCreator.builder().classOutput(classOutput)
-                .interfaces(ReflectionOptimizer.InstantiationOptimizer.class).className(className).build()) {
-            MethodCreator method = classCreator
-                    .getMethodCreator("newInstance", Object.class)
-                    .setModifiers(ACC_PUBLIC);
-            ResultHandle constructorHandle = method.newInstance(MethodDescriptor.ofConstructor(classInfo.name().toString()));
-            method.returnValue(constructorHandle);
         }
     }
 
