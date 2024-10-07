@@ -1,6 +1,10 @@
 package io.quarkus.hibernate.orm.runtime.reflection;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -39,9 +43,15 @@ public class ReflectionOptimizerDefinitions {
             final Class<?> mappedClass = pc.getMappedClass();
 
             // todo marco : building this is duplicating work that will be done during Hibernate final bootstrap
-            //  maybe we can avoid doing it? I'm not sure
-            Map<String, PropertyAccess> propertyAccessMap = new HashMap<>();
-            for (Property property : pc.getPropertyClosure()) {
+            // we need to maintain property order
+            Map<String, PropertyAccess> propertyAccessMap = new LinkedHashMap<>();
+            // todo marco : 1st problem, here the properties are not sorted
+            //  solution: maybe sort them by name here too?
+            // todo marco : 2nd problem, there is additional processing done in PersistentClass#prepareForMappingModel
+            //  problem: this requires a RuntimeModelCreationContext, which we definitely don't have here
+            List<Property> properties = new ArrayList<>(pc.getProperties());
+            properties.sort(Comparator.comparing(Property::getName));
+            for (Property property : properties) {
                 propertyAccessMap.put(property.getName(), makePropertyAccess(property, mappedClass, strategySelector));
             }
             ReflectionOptimizer reflectionOptimizer = lazyBytecode.get().getReflectionOptimizer(mappedClass,
@@ -68,9 +78,12 @@ public class ReflectionOptimizerDefinitions {
             }
         }
 
-        // todo marco : do the same for embeddables
-        //  problem: polymorphic embeddables have some custom logic
-        //  solution: unify creation of property access map in public-static method within Hibernate?
+        metadata.visitRegisteredComponents( component -> {
+           component.prepareForMappingModel(); // need to call this to ensure correct property order, probably?
+            // todo marco : do the same for embeddables
+            //  problem: polymorphic embeddables have some custom logic
+            //  solution: unify creation of property access map in public-static method within Hibernate?
+        });
 
         return new ReflectionOptimizerDefinitions(optimizerMap);
     }

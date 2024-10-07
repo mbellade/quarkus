@@ -426,6 +426,11 @@ public class FastBootMetadataBuilder {
         }
 
         Dialect dialect = extractDialect();
+
+        // todo marco : if we want to call prepareForMappingMetamodel early for PC, we can with these two:
+        fullMeta.getTypeConfiguration();
+        fullMeta.getFunctionRegistry();
+
         PrevalidatedQuarkusMetadata storeableMetadata = trimBootstrapMetadata(fullMeta);
         ProxyDefinitions proxyClassDefinitions;
         ReflectionOptimizerDefinitions optimzerDefinitions;
