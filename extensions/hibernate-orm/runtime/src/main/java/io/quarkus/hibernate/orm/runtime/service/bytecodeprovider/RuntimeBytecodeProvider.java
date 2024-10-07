@@ -10,13 +10,17 @@ import org.hibernate.bytecode.spi.ReflectionOptimizer;
 import org.hibernate.property.access.spi.PropertyAccess;
 
 import io.quarkus.hibernate.orm.runtime.customized.QuarkusRuntimeProxyFactoryFactory;
+import io.quarkus.hibernate.orm.runtime.optimizers.InstantiatorDefinitions;
 
 final class RuntimeBytecodeProvider implements BytecodeProvider {
 
     private final QuarkusRuntimeProxyFactoryFactory statefulProxyFactory;
+    private final InstantiatorDefinitions instantiatorDefinitions;
 
-    public RuntimeBytecodeProvider(QuarkusRuntimeProxyFactoryFactory statefulProxyFactory) {
+    public RuntimeBytecodeProvider(QuarkusRuntimeProxyFactoryFactory statefulProxyFactory,
+            InstantiatorDefinitions instantiatorDefinitions) {
         this.statefulProxyFactory = statefulProxyFactory;
+        this.instantiatorDefinitions = instantiatorDefinitions;
     }
 
     @Override
@@ -35,6 +39,26 @@ final class RuntimeBytecodeProvider implements BytecodeProvider {
 
     @Override
     public ReflectionOptimizer getReflectionOptimizer(Class<?> clazz, Map<String, PropertyAccess> propertyAccessMap) {
+        InstantiatorDefinitions.InstantiatorHolder holder = instantiatorDefinitions.getOptimizers().get(clazz.getName());
+        if (holder != null) {
+            try {
+                ReflectionOptimizer.InstantiationOptimizer optimizer = (ReflectionOptimizer.InstantiationOptimizer) holder
+                        .getConstructor().newInstance();
+                return new ReflectionOptimizer() {
+                    @Override
+                    public InstantiationOptimizer getInstantiationOptimizer() {
+                        return optimizer;
+                    }
+
+                    @Override
+                    public AccessOptimizer getAccessOptimizer() {
+                        return null;
+                    }
+                };
+            } catch (Exception e) {
+                // ignored
+            }
+        }
         return null;
     }
 

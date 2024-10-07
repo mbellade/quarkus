@@ -9,6 +9,7 @@ import org.hibernate.service.internal.ProvidedService;
 import io.quarkus.hibernate.orm.runtime.BuildTimeSettings;
 import io.quarkus.hibernate.orm.runtime.IntegrationSettings;
 import io.quarkus.hibernate.orm.runtime.migration.MultiTenancyStrategy;
+import io.quarkus.hibernate.orm.runtime.optimizers.InstantiatorDefinitions;
 import io.quarkus.hibernate.orm.runtime.proxies.ProxyDefinitions;
 
 public final class RecordedState {
@@ -20,6 +21,7 @@ public final class RecordedState {
     private final Collection<ProvidedService<?>> providedServices;
     private final IntegrationSettings integrationSettings;
     private final ProxyDefinitions proxyClassDefinitions;
+    private final InstantiatorDefinitions instantiatorDefinitions;
     private final MultiTenancyStrategy multiTenancyStrategy;
 
     private final boolean isReactive;
@@ -28,8 +30,8 @@ public final class RecordedState {
     public RecordedState(Dialect dialect, PrevalidatedQuarkusMetadata metadata,
             BuildTimeSettings settings, Collection<Integrator> integrators,
             Collection<ProvidedService<?>> providedServices, IntegrationSettings integrationSettings,
-            ProxyDefinitions classDefinitions, MultiTenancyStrategy strategy,
-            boolean isReactive, boolean fromPersistenceXml) {
+            ProxyDefinitions classDefinitions, InstantiatorDefinitions instantiatorDefinitions,
+            MultiTenancyStrategy strategy, boolean isReactive, boolean fromPersistenceXml) {
         this.dialect = dialect;
         this.metadata = metadata;
         this.settings = settings;
@@ -37,6 +39,7 @@ public final class RecordedState {
         this.providedServices = providedServices;
         this.integrationSettings = integrationSettings;
         this.proxyClassDefinitions = classDefinitions;
+        this.instantiatorDefinitions = instantiatorDefinitions;
         this.multiTenancyStrategy = strategy;
         this.isReactive = isReactive;
         this.fromPersistenceXml = fromPersistenceXml;
@@ -68,6 +71,10 @@ public final class RecordedState {
 
     public ProxyDefinitions getProxyClassDefinitions() {
         return proxyClassDefinitions;
+    }
+
+    public InstantiatorDefinitions getInstantiatorDefinitions() {
+        return instantiatorDefinitions;
     }
 
     public MultiTenancyStrategy getMultiTenancyStrategy() {

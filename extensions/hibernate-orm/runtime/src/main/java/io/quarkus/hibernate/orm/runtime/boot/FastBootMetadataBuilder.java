@@ -72,6 +72,7 @@ import io.quarkus.hibernate.orm.runtime.boot.xml.RecordableXmlMapping;
 import io.quarkus.hibernate.orm.runtime.integration.HibernateOrmIntegrationStaticDescriptor;
 import io.quarkus.hibernate.orm.runtime.integration.HibernateOrmIntegrationStaticInitListener;
 import io.quarkus.hibernate.orm.runtime.migration.MultiTenancyStrategy;
+import io.quarkus.hibernate.orm.runtime.optimizers.InstantiatorDefinitions;
 import io.quarkus.hibernate.orm.runtime.proxies.PreGeneratedProxies;
 import io.quarkus.hibernate.orm.runtime.proxies.ProxyDefinitions;
 import io.quarkus.hibernate.orm.runtime.recording.PrevalidatedQuarkusMetadata;
@@ -428,9 +429,10 @@ public class FastBootMetadataBuilder {
         //Make sure that the service is destroyed after the metadata has been validated and trimmed, as validation needs to use it.
         destroyServiceRegistry();
         ProxyDefinitions proxyClassDefinitions = ProxyDefinitions.createFromMetadata(storeableMetadata, preGeneratedProxies);
+        InstantiatorDefinitions instantiatorDefinitions = InstantiatorDefinitions.createFromMetadata(storeableMetadata);
         return new RecordedState(dialect, storeableMetadata, buildTimeSettings, getIntegrators(),
-                providedServices, integrationSettingsBuilder.build(), proxyClassDefinitions, multiTenancyStrategy,
-                isReactive, fromPersistenceXml);
+                providedServices, integrationSettingsBuilder.build(), proxyClassDefinitions, instantiatorDefinitions,
+                multiTenancyStrategy, isReactive, fromPersistenceXml);
     }
 
     private void destroyServiceRegistry() {
