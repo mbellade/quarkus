@@ -46,16 +46,17 @@ public class HibernateOrmDevJsonRpcService {
                 SessionFactoryImplementor sf = pu.get().sessionFactory();
                 return sf.fromSession(session -> {
                     try {
+                        // Hibernate ensures the provided HQL is a selection statement, no pre-validation needed
                         SelectionQuery<Object> query = session.createSelectionQuery(hql, Object.class);
 
-                        // execute count query before applying offset and limit
+                        // This executes a separate count query
                         long resultCount = query.getResultCount();
 
                         try (ScrollableResults<Object> scroll = query.scroll(ScrollMode.SCROLL_INSENSITIVE)) {
                             scroll.scroll((pageNumber - 1) * pageSize + 1);
                             List<Object> results = new ArrayList<>();
                             int i = 0;
-                            while (pageSize > i++) {
+                            while (i++ < pageSize) {
                                 results.add(scroll.get());
                                 if (!scroll.next())
                                     break;
@@ -69,7 +70,7 @@ public class HibernateOrmDevJsonRpcService {
                     }
                 });
             } else {
-                return new DataSet(null, -1, "The provided persistence unit name was not found");
+                return new DataSet(null, -1, "No persistence unit was found for provided name '" + persistenceUnit + "'");
             }
         } else {
             return new DataSet(null, -1, "The provided HQL was not valid");

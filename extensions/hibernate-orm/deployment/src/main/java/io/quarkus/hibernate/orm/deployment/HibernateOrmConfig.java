@@ -192,15 +192,15 @@ public interface HibernateOrmConfig {
     @ConfigGroup
     interface HibernateOrmConfigDevUI {
         /**
-         * Activate or disable the dev ui page.
+         * Activate or disable the HQL console dev ui page.
          */
         @WithDefault("true")
-        public boolean enabled();
+        boolean enableHqlConsole();
 
         /**
          * Allow hql queries in the Dev UI page
          */
         @WithDefault("false")
-        public boolean allowHql();
+        boolean allowHql();
     }
 }

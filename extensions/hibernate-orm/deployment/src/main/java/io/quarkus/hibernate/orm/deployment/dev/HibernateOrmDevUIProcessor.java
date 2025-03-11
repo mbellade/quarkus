@@ -40,14 +40,13 @@ public class HibernateOrmDevUIProcessor {
                 .componentLink("hibernate-orm-named-queries.js")
                 .icon("font-awesome-solid:circle-question")
                 .dynamicLabelJsonRPCMethodName("getNumberOfNamedQueries"));
-        card.addPage(Page.webComponentPageBuilder()
-                .title("HQL Console")
-                .componentLink("hibernate-orm-hql-console.js")
-                .icon("font-awesome-solid:play")
-                .metadata("allowHql", String.valueOf(config.devui().allowHql())));
-
-        // todo marco : add tests for each (?) new back-end method (executeHQL)
-
+        if (config.devui().enableHqlConsole()) {
+            card.addPage(Page.webComponentPageBuilder()
+                    .title("HQL Console")
+                    .componentLink("hibernate-orm-hql-console.js")
+                    .icon("font-awesome-solid:play")
+                    .metadata("allowHql", String.valueOf(config.devui().allowHql())));
+        }
         return card;
     }
 
