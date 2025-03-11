@@ -110,7 +110,7 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
         .font-large {
             font-size: var(--lumo-font-size-l);
         }
-        
+
         .cursor-text {
             cursor: text;
         }
@@ -283,6 +283,8 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
 
     _executeCurrentHQL() {
         if (this._currentHQL) {
+            this._currentDataSet = null; // indicates loading
+
             this.jsonRpc.executeHQL({
                 persistenceUnit: this._selectedPersistenceUnit.name,
                 hql: this._currentHQL,
@@ -349,10 +351,9 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
         if (this._selectedEntity && this._currentDataSet) {
             return html`
                 <div class="data">
-                    <vaadin-grid .items="${this._currentDataSet.data}" theme="row-stripes no-border" class="fill" column-reordering-allowed>
-                        ${Object.keys(this._currentDataSet.data[0]).map((col) =>
-                                this._renderTableHeader(col)
-                        )}
+                    <vaadin-grid id="data-grid" .items="${this._currentDataSet.data}" theme="row-stripes no-border"
+                                 class="fill" column-reordering-allowed>
+                        ${this._renderTableRows(this._currentDataSet.data)}
                         <span slot="empty-state">No data.</span>
                     </vaadin-grid>
                     ${this._renderPager()}
@@ -367,10 +368,42 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
         }
     }
 
-    _renderTableHeader(col) {
-        return html`
-            <vaadin-grid-sort-column path="${col}" header="${col}" auto-width" resizable></vaadin-grid-sort-column>
-        `;
+    _renderTableRows(data) {
+        const firstResult = data.find(e => !!e); // first non-null element
+        if (typeof firstResult === 'object') {
+            return Object.keys(this._currentDataSet.data[0]).map((col) => {
+                return html`
+                    <vaadin-grid-sort-column path="${col}" header="${col}" auto-width resizable ${columnBodyRenderer(
+                            (item) => this._cellRenderer(item[col]),
+                            []
+                    )}></vaadin-grid-sort-column>`;
+            });
+        } else {
+            return html`
+                <vaadin-grid-sort-column header="0" auto-width resizable ${columnBodyRenderer(
+                        (value) => this._cellRenderer(value),
+                        []
+                )}></vaadin-grid-sort-column>`;
+        }
+    }
+
+    _cellRenderer(value) {
+        if (value) {
+            if (value === 'true') {
+                return html`
+                    <vaadin-icon style="color: var(--lumo-contrast-50pct);" title="${value}"
+                                 icon="font-awesome-regular:square-check"></vaadin-icon>`;
+            } else if (value === 'false') {
+                return html`
+                    <vaadin-icon style="color: var(--lumo-contrast-50pct);" title="${value}"
+                                 icon="font-awesome-regular:square"></vaadin-icon>`;
+            } else if (typeof value === 'string' && (value.startsWith('http://') || value.startsWith('https://'))) {
+                return html`<a href="${value}" target="_blank">${value}</a>`;
+            } else {
+                const s = typeof value === 'object' ? JSON.stringify(value) : value;
+                return html`<span>${s}</span>`;
+            }
+        }
     }
 
     // *** pager and page handling ***
