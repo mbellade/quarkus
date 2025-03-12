@@ -14,7 +14,7 @@ public class DevUIHibernateOrmSmokeTest extends AbstractDevUIHibernateOrmTest {
                             + "quarkus.datasource.jdbc.url=jdbc:h2:mem:test\n"
                             + "quarkus.hibernate-orm.database.generation=drop-and-create\n"),
                     "application.properties")
-                    .addAsResource(new StringAsset("insert into MyEntity(id, field) VALUES (1, 'entity_1');\n"), "import.sql")
+                    .addAsResource(new StringAsset("INSERT INTO MyEntity(id, field) VALUES(1, 'entity_1');"), "import.sql")
                     .addClasses(MyEntity.class));
 
     public DevUIHibernateOrmSmokeTest() {

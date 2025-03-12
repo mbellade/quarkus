@@ -98,12 +98,15 @@ public abstract class AbstractDevUIHibernateOrmTest extends DevUIJsonRPCTest {
     }
 
     @Test
-    public void testExecuteHQLOk() throws Exception {
-        JsonNode dataSet = super.executeJsonRPCMethod("executeHQL", Map.of(
-                "hql", "select e from MyEntity e where e.id = 1",
-                "persistenceUnit", "<default>",
+    public void testExecuteHQL() throws Exception {
+        String entityName = expectedTableName != null ? expectedTableName : "MyEntity";
+        Map<String, Object> arguments = Map.of(
+                "hql", "select e from " + entityName + " e where e.id = 1",
+                "persistenceUnit", expectedPersistenceUnitName != null ? expectedPersistenceUnitName : "",
                 "pageNumber", 1,
-                "pageSize", 15));
+                "pageSize", 15);
+
+        JsonNode dataSet = super.executeJsonRPCMethod("executeHQL", arguments);
 
         if (expectedResults != null) {
             // Expect number of results
@@ -120,9 +123,9 @@ public abstract class AbstractDevUIHibernateOrmTest extends DevUIJsonRPCTest {
             assertTrue(data.isArray());
             assertEquals(expectedResults, data.size());
             for (int i = 1; i <= expectedResults; i++) {
-                JsonNode element = data.get(i);
+                JsonNode element = data.get(i - 1);
                 assertEquals(i, element.get("id").intValue());
-                assertEquals("entity_" + i, data.get(0).get("name").textValue());
+                assertEquals("entity_" + i, data.get(0).get("field").textValue());
             }
         } else if (expectedPersistenceUnitName != null) {
             // Expecting an empty result set
@@ -151,7 +154,7 @@ public abstract class AbstractDevUIHibernateOrmTest extends DevUIJsonRPCTest {
 
             JsonNode error = dataSet.get("error");
             assertTrue(error.isTextual());
-            assertTrue(error.asText().contains("<default>"));
+            assertTrue(error.asText().contains("No such persistence unit"));
         }
     }
 }

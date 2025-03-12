@@ -47,7 +47,7 @@ public class HibernateOrmDevJsonRpcService {
     }
 
     private Optional<HibernateOrmDevInfo.PersistenceUnit> findPersistenceUnit(String persistenceUnitName) {
-        return getInfo().getPersistenceUnits().stream().filter(pu -> persistenceUnitName.equals(pu.getName())).findFirst();
+        return getInfo().getPersistenceUnits().stream().filter(pu -> pu.getName().equals(persistenceUnitName)).findFirst();
     }
 
     public DataSet executeHQL(String persistenceUnit, String hql, Integer pageNumber, Integer pageSize) {

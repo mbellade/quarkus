@@ -369,7 +369,7 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
     }
 
     _renderTableRows(data) {
-        if (!data) {
+        if (!data || data.length === 0) {
             return html``;
         }
 
