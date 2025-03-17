@@ -1,5 +1,7 @@
 package io.quarkus.hibernate.orm.runtime.dev;
 
+import static org.hibernate.query.sqm.internal.SqmUtil.isMutation;
+
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
@@ -11,7 +13,8 @@ import org.hibernate.ScrollMode;
 import org.hibernate.ScrollableResults;
 import org.hibernate.engine.jdbc.connections.spi.ConnectionProvider;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
-import org.hibernate.query.SelectionQuery;
+import org.hibernate.query.Query;
+import org.hibernate.query.spi.SqmQuery;
 
 import io.agroal.api.AgroalDataSource;
 import io.agroal.api.configuration.AgroalDataSourceConfiguration;
@@ -79,25 +82,32 @@ public class HibernateOrmDevJsonRpcService {
             return errorDataSet("Unsupported Connection Provider type for specified persistence unit.");
         }
 
-        return sf.fromSession(session -> {
+        return sf.fromTransaction(session -> {
             try {
-                // Hibernate ensures the provided HQL is a selection statement, no pre-validation needed
-                SelectionQuery<Object> query = session.createSelectionQuery(hql, Object.class);
+                Query<Object> query = session.createQuery(hql, null);
+                if (isMutation(((SqmQuery) query).getSqmStatement())) {
+                    // DML query, execute update and return custom message with affected rows
+                    int updateCount = query.executeUpdate();
+                    String message = "Query executed correctly. Rows affected: " + updateCount;
+                    return new DataSet(null, -1, message, null);
+                } else {
+                    // selection query, execute count query and return paged results
 
-                // This executes a separate count query
-                long resultCount = query.getResultCount();
+                    // This executes a separate count query
+                    long resultCount = query.getResultCount();
 
-                try (ScrollableResults<Object> scroll = query.scroll(ScrollMode.SCROLL_INSENSITIVE)) {
-                    boolean hasNext = scroll.scroll((pageNumber - 1) * pageSize + 1);
-                    List<Object> results = new ArrayList<>();
-                    int i = 0;
-                    while (hasNext && i++ < pageSize) {
-                        results.add(scroll.get());
-                        hasNext = scroll.next();
+                    try (ScrollableResults<Object> scroll = query.scroll(ScrollMode.SCROLL_INSENSITIVE)) {
+                        boolean hasNext = scroll.scroll((pageNumber - 1) * pageSize + 1);
+                        List<Object> results = new ArrayList<>();
+                        int i = 0;
+                        while (hasNext && i++ < pageSize) {
+                            results.add(scroll.get());
+                            hasNext = scroll.next();
+                        }
+
+                        // todo : for now we rely on automatic marshalling of results
+                        return new DataSet(results, resultCount, null, null);
                     }
-
-                    // todo : for now we rely on automatic marshalling of results
-                    return new DataSet(results, resultCount, null);
                 }
             } catch (Exception ex) {
                 return errorDataSet(ex.getMessage());
@@ -106,7 +116,7 @@ public class HibernateOrmDevJsonRpcService {
     }
 
     private static DataSet errorDataSet(String errorMessage) {
-        return new DataSet(null, -1, errorMessage);
+        return new DataSet(null, -1, null, errorMessage);
     }
 
     private boolean hqlIsValid(String hql) {
@@ -147,6 +157,6 @@ public class HibernateOrmDevJsonRpcService {
         return false;
     }
 
-    private record DataSet(List<Object> data, long totalNumberOfElements, String error) {
+    private record DataSet(List<Object> data, long totalNumberOfElements, String message, String error) {
     }
 }

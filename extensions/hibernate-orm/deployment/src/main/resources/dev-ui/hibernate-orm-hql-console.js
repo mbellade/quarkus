@@ -128,6 +128,7 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
         _selectedEntityIndex: {state: true},
         _currentHQL: {state: true},
         _currentDataSet: {state: true},
+        _currentMessage: {state: true},
         _currentPageNumber: {state: true},
         _currentNumberOfPages: {state: true},
         _allowHql: {state: true},
@@ -141,6 +142,7 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
         this._selectedEntityIndex = 0;
         this._currentHQL = null;
         this._currentDataSet = null;
+        this._currentMessage = null;
         this._currentPageNumber = 1;
         this._currentNumberOfPages = 1;
         this._pageSize = 15;
@@ -283,6 +285,7 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
     _executeCurrentHQL() {
         if (this._currentHQL) {
             this._currentDataSet = null; // indicates loading
+            this._currentMessage = null;
 
             this.jsonRpc.executeHQL({
                 persistenceUnit: this._selectedPersistenceUnit.name,
@@ -293,6 +296,8 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
                 if (jsonRpcResponse.result.error) {
                     this._currentDataSet = [];
                     notifier.showErrorMessage("Error executing query: " + jsonRpcResponse.result.error, "bottom-start");
+                } else if (jsonRpcResponse.result.message) {
+                    this._currentMessage = jsonRpcResponse.result.message;
                 } else {
                     this._currentDataSet = jsonRpcResponse.result;
                     this._currentNumberOfPages = this._getNumberOfPages();
@@ -348,24 +353,28 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
     }
 
     _renderTableData() {
-        if (this._selectedEntity && this._currentDataSet) {
-            return html`
-                <div class="data">
-                    <vaadin-grid id="data-grid" .items="${this._currentDataSet.data}" theme="row-stripes no-border"
-                                 class="fill" column-reordering-allowed>
-                        ${this._renderTableRows(this._currentDataSet.data)}
-                        <span slot="empty-state">No data.</span>
-                    </vaadin-grid>
-                    ${this._renderPager()}
-                </div>
-            `;
-        } else {
-            return html`
-                <div style="color: var(--lumo-secondary-text-color);width: 95%;padding-top:20px;">
-                    <div>Fetching data...</div>
-                    <vaadin-progress-bar indeterminate></vaadin-progress-bar>
-                </div>`;
+        if (this._selectedEntity) {
+            if (this._currentMessage) {
+                return html`
+                    <div class="data"><span style="padding-top:20px;">${this._currentMessage}</span></div>`;
+            } else if (this._currentDataSet) {
+                return html`
+                    <div class="data">
+                        <vaadin-grid id="data-grid" .items="${this._currentDataSet.data}" theme="row-stripes no-border"
+                                     class="fill" column-reordering-allowed>
+                            ${this._renderTableRows(this._currentDataSet.data)}
+                            <span slot="empty-state">No data.</span>
+                        </vaadin-grid>
+                        ${this._renderPager()}
+                    </div>`;
+            }
         }
+
+        return html`
+            <div style="color: var(--lumo-secondary-text-color);width: 95%;padding-top:20px;">
+                <div>Fetching data...</div>
+                <vaadin-progress-bar indeterminate></vaadin-progress-bar>
+            </div>`;
     }
 
     _renderTableRows(data) {
