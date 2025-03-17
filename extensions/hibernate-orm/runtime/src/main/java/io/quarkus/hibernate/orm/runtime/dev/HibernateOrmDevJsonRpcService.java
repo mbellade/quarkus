@@ -8,6 +8,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import jakarta.enterprise.inject.spi.CDI;
+
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.hibernate.ScrollMode;
 import org.hibernate.ScrollableResults;
@@ -18,6 +20,9 @@ import org.hibernate.query.spi.SqmQuery;
 
 import io.agroal.api.AgroalDataSource;
 import io.agroal.api.configuration.AgroalDataSourceConfiguration;
+import io.quarkus.devui.runtime.comms.JsonRpcMessage;
+import io.quarkus.devui.runtime.comms.JsonRpcRouter;
+import io.quarkus.devui.runtime.comms.MessageType;
 import io.quarkus.hibernate.orm.runtime.customized.QuarkusConnectionProvider;
 import io.quarkus.logging.Log;
 import io.quarkus.runtime.LaunchMode;
@@ -53,7 +58,22 @@ public class HibernateOrmDevJsonRpcService {
         return getInfo().getPersistenceUnits().stream().filter(pu -> pu.getName().equals(persistenceUnitName)).findFirst();
     }
 
-    public DataSet executeHQL(String persistenceUnit, String hql, Integer pageNumber, Integer pageSize) {
+    /**
+     * Execute an arbitrary {@code hql} query in the given {@code persistence unit}. The query might be both a selection or a
+     * mutation statement. For selection queries, the result count is retrieved though a count query and the results, paginated
+     * based on pageNumber and pageSize are returned. For mutation statements, a custom message including the number of affected
+     * records is returned.
+     * <p>
+     * This method handles result serialization (to JSON) internally, and returns a {@link JsonRpcMessage<String>} to avoid
+     * further processing by the {@link JsonRpcRouter}.
+     *
+     * @param persistenceUnit The name of the persistence unit within which the query will be executed
+     * @param hql The Hibernate Query Language (HQL) statement to execute
+     * @param pageNumber The page number, used for selection query results pagination
+     * @param pageSize The page size, used for selection query results pagination
+     * @return a {@link JsonRpcMessage<String>} containing the resulting {@link DataSet} serialized to JSON.
+     */
+    public JsonRpcMessage<Object> executeHQL(String persistenceUnit, String hql, Integer pageNumber, Integer pageSize) {
         if (!isDev) {
             return errorDataSet("This method is only allowed in dev mode");
         }
@@ -89,7 +109,7 @@ public class HibernateOrmDevJsonRpcService {
                     // DML query, execute update and return custom message with affected rows
                     int updateCount = query.executeUpdate();
                     String message = "Query executed correctly. Rows affected: " + updateCount;
-                    return new DataSet(null, -1, message, null);
+                    return new JsonRpcMessage<>(new DataSet(null, -1, message, null), MessageType.Response);
                 } else {
                     // selection query, execute count query and return paged results
 
@@ -105,18 +125,26 @@ public class HibernateOrmDevJsonRpcService {
                             hasNext = scroll.next();
                         }
 
-                        // todo : for now we rely on automatic marshalling of results
-                        return new DataSet(results, resultCount, null, null);
+                        // manually serialize data within the transaction to ensure lazy-loading can function
+                        String result = writeValueAsString(new DataSet(results, resultCount, null, null));
+                        JsonRpcMessage<Object> message = new JsonRpcMessage<>(result, MessageType.Response);
+                        message.setAlreadySerialized(true);
+                        return message;
                     }
                 }
             } catch (Exception ex) {
-                return errorDataSet(ex.getMessage());
+                return new JsonRpcMessage<>(new DataSet(null, -1, null, ex.getMessage()), MessageType.Response);
             }
         });
     }
 
-    private static DataSet errorDataSet(String errorMessage) {
-        return new DataSet(null, -1, null, errorMessage);
+    private static JsonRpcMessage<Object> errorDataSet(String errorMessage) {
+        return new JsonRpcMessage<>(new DataSet(null, -1, null, errorMessage), MessageType.Response);
+    }
+
+    private static String writeValueAsString(DataSet value) {
+        JsonRpcRouter jsonRpcRouter = CDI.current().select(JsonRpcRouter.class).get();
+        return jsonRpcRouter.getJsonMapper().toString(value, true);
     }
 
     private boolean hqlIsValid(String hql) {
