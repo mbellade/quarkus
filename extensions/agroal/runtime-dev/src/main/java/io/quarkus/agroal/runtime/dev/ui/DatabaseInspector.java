@@ -5,20 +5,9 @@ import java.io.StringWriter;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.sql.Connection;
-import java.sql.DatabaseMetaData;
+import java.sql.*;
 import java.sql.Date;
-import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.sql.Timestamp;
-import java.sql.Types;
-import java.util.ArrayList;
-import java.util.Base64;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import javax.sql.DataSource;
 
@@ -223,7 +212,10 @@ public final class DatabaseInspector {
                         }
                     }
                 } else {
-                    return new DataSet(null, null, "Only supported for Local Databases", null, -1);
+                    return new DataSet(null, null,
+                            "Datasource access not allowed. By default only local databases are enabled; you can use the"
+                                    + " 'quarkus.datasource.dev-ui.allowed-db-host' configuration property to configure allowed hosts (use '*' to allow any).",
+                            null, -1);
                 }
             } catch (SQLException ex) {
                 return new DataSet(null, null, ex.getMessage(), null, -1);
@@ -325,14 +317,20 @@ public final class DatabaseInspector {
     }
 
     private boolean isAllowedDatabase(AgroalDataSource ads) {
+        final String allowedHost = this.allowedHost == null ? null : this.allowedHost.trim();
+        if (allowedHost != null && allowedHost.equals("*")) {
+            // special value indicating to allow any host
+            return true;
+        }
+
         AgroalDataSourceConfiguration configuration = ads.getConfiguration();
         String jdbcUrl = configuration.connectionPoolConfiguration().connectionFactoryConfiguration().jdbcUrl();
 
         try {
             if (jdbcUrl.startsWith("jdbc:h2:mem:") || jdbcUrl.startsWith("jdbc:h2:file:")
                     || jdbcUrl.startsWith("jdbc:h2:tcp://localhost")
-                    || (this.allowedHost != null && !this.allowedHost.isBlank()
-                            && jdbcUrl.startsWith("jdbc:h2:tcp://" + this.allowedHost))
+                    || (allowedHost != null && !allowedHost.isBlank()
+                            && jdbcUrl.startsWith("jdbc:h2:tcp://" + allowedHost))
                     || jdbcUrl.startsWith("jdbc:derby:memory:")) {
                 return true;
             }
@@ -343,7 +341,7 @@ public final class DatabaseInspector {
             String host = uri.getHost();
 
             return host != null && ((host.equals("localhost") || host.equals("127.0.0.1") || host.equals("::1")) ||
-                    (this.allowedHost != null && !this.allowedHost.isBlank() && host.equalsIgnoreCase(this.allowedHost)));
+                    (allowedHost != null && !allowedHost.isBlank() && host.equalsIgnoreCase(allowedHost)));
 
         } catch (URISyntaxException e) {
             Log.warn(e.getMessage());
