@@ -293,9 +293,10 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
                 pageNumber: this._currentPageNumber,
                 pageSize: this._pageSize
             }).then(jsonRpcResponse => {
-                if (jsonRpcResponse.result.error) {
+                const error = jsonRpcResponse.error && jsonRpcResponse.error.message || jsonRpcResponse.result.error;
+                if (error) {
                     this._currentDataSet = [];
-                    notifier.showErrorMessage("Error executing query: " + jsonRpcResponse.result.error, "bottom-start");
+                    notifier.showErrorMessage("Error executing query: " + error, "bottom-start");
                 } else if (jsonRpcResponse.result.message) {
                     this._currentMessage = jsonRpcResponse.result.message;
                 } else {

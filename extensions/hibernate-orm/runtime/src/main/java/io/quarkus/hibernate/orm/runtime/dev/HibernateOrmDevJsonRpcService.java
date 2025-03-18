@@ -13,6 +13,7 @@ import jakarta.enterprise.inject.spi.CDI;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.hibernate.ScrollMode;
 import org.hibernate.ScrollableResults;
+import org.hibernate.Transaction;
 import org.hibernate.engine.jdbc.connections.spi.ConnectionProvider;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.hibernate.query.Query;
@@ -96,20 +97,29 @@ public class HibernateOrmDevJsonRpcService {
             if (!isAllowedDatabase(quarkusConnectionProvider.getDataSource())) {
                 return errorDataSet("The persistence unit's datasource points to a non-allowed datasource. "
                         + "By default only local databases are enabled; you can use the 'quarkus.datasource.dev-ui.allowed-db-host'"
-                        + " configuration property to configure allowed hosts (use '*' to allow any).");
+                        + " configuration property to configure allowed hosts ('*' to allow all).");
             }
         } else {
             return errorDataSet("Unsupported Connection Provider type for specified persistence unit.");
         }
 
-        return sf.fromTransaction(session -> {
+        return sf.fromSession(session -> {
             try {
                 Query<Object> query = session.createQuery(hql, null);
                 if (isMutation(((SqmQuery) query).getSqmStatement())) {
-                    // DML query, execute update and return custom message with affected rows
-                    int updateCount = query.executeUpdate();
-                    String message = "Query executed correctly. Rows affected: " + updateCount;
-                    return new JsonRpcMessage<>(new DataSet(null, -1, message, null), MessageType.Response);
+                    // DML query, execute update within transaction and return custom message with affected rows
+                    Transaction transaction = session.beginTransaction();
+                    try {
+                        int updateCount = query.executeUpdate();
+                        transaction.commit();
+
+                        String message = "Query executed correctly. Rows affected: " + updateCount;
+                        return new JsonRpcMessage<>(new DataSet(null, -1, message, null), MessageType.Response);
+                    } catch (Exception e) {
+                        // an error happened in executeUpdate() or during commit
+                        transaction.rollback();
+                        throw e;
+                    }
                 } else {
                     // selection query, execute count query and return paged results
 

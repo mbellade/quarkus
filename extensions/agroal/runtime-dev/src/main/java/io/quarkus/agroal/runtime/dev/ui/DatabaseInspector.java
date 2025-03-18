@@ -214,7 +214,7 @@ public final class DatabaseInspector {
                 } else {
                     return new DataSet(null, null,
                             "Datasource access not allowed. By default only local databases are enabled; you can use the"
-                                    + " 'quarkus.datasource.dev-ui.allowed-db-host' configuration property to configure allowed hosts (use '*' to allow any).",
+                                    + " 'quarkus.datasource.dev-ui.allowed-db-host' configuration property to configure allowed hosts ('*' to allow all).",
                             null, -1);
                 }
             } catch (SQLException ex) {
