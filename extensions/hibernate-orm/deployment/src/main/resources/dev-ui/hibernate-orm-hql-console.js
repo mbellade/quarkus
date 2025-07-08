@@ -4,11 +4,11 @@ import {JsonRpc} from 'jsonrpc';
 import '@vaadin/icon';
 import '@vaadin/button';
 import '@vaadin/combo-box';
-import '@vaadin/grid';
+import '@vaadin/text-field';
+import '@vaadin/text-area';
 import '@vaadin/progress-bar';
 import '@vaadin/tabs';
 import '@vaadin/tabsheet';
-import {columnBodyRenderer} from '@vaadin/grid/lit.js';
 import {notifier} from 'notifier';
 
 export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
@@ -32,69 +32,110 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
             padding-left: 10px;
         }
 
-        .tablesAndData {
+        .chat-container {
             display: flex;
             height: 100%;
-            gap: 20px;
+            flex-direction: column;
             padding-right: 20px;
         }
 
-        .tables {
+        .selector-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        .pu-selector, .entity-selector {
+            flex-grow: 1;
+            min-width: 200px;
+        }
+
+        .chat-area {
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            flex: 1;
+            overflow-y: auto;
+            gap: 10px;
+            padding: 15px;
+            background-color: var(--lumo-contrast-5pct);
+            border-radius: var(--lumo-border-radius-l);
+            margin-bottom: 10px;
         }
 
-        .tableData {
+        .message {
+            max-width: 80%;
+            padding: 10px 15px;
+            border-radius: var(--lumo-border-radius-m);
+            margin-bottom: 10px;
+        }
+
+        .user-message {
+            align-self: flex-end;
+            background-color: var(--lumo-primary-color-10pct);
+            color: var(--lumo-body-text-color);
+        }
+
+        .system-message {
+            align-self: flex-start;
+            background-color: var(--lumo-contrast-10pct);
+            color: var(--lumo-body-text-color);
+        }
+
+        .error-message {
+            align-self: flex-start;
+            background-color: var(--lumo-error-color-10pct);
+            color: var(--lumo-error-text-color);
+        }
+
+        .chat-input {
             display: flex;
-            flex-direction: column;
-            width: 100%;
+            gap: 10px;
+            align-items: flex-end;
         }
 
-        .tablesCard {
-            min-width: 192px;
+        .chat-text-area {
+            flex: 1;
+        }
+
+        .results-card {
+            background-color: var(--lumo-base-color);
+            padding: 10px;
+            border-radius: var(--lumo-border-radius-m);
+            margin-top: 5px;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid var(--lumo-contrast-20pct);
+        }
+
+        .result-item {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-bottom: 1px solid var(--lumo-contrast-10pct);
+        }
+
+        .result-key {
+            font-weight: bold;
+            margin-right: 5px;
+        }
+
+        .timestamp {
+            font-size: var(--lumo-font-size-xs);
+            color: var(--lumo-tertiary-text-color);
+            margin-top: 4px;
+        }
+
+        .pagination {
             display: flex;
-        }
-
-        .fill {
-            width: 100%;
-            height: 100%;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 5px;
         }
 
         .small-icon {
             height: var(--lumo-icon-size-s);
             width: var(--lumo-icon-size-s);
-        }
-
-        .hqlInput {
-            display: flex;
-            justify-content: space-between;
-            gap: 10px;
-            align-items: center;
-            padding-bottom: 20px;
-            border-bottom-style: dotted;
-            border-bottom-color: var(--lumo-contrast-10pct);
-        }
-
-        #hql {
-            width: 100%;
-        }
-
-        .data {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            width: 100%;
-            height: 100%;
-        }
-
-        .pager {
-            display: flex;
-            justify-content: space-between;
-        }
-
-        .hidden {
-            visibility: hidden;
         }
 
         a, a:visited, a:focus, a:active {
@@ -107,45 +148,33 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
             color: var(--lumo-primary-text-color);
         }
 
-        .font-large {
-            font-size: var(--lumo-font-size-l);
-        }
-
-        .cursor-text {
-            cursor: text;
-        }
-
-        .no-margin {
-            margin: 0;
+        .hidden {
+            display: none;
         }
     `;
-
 
     static properties = {
         _persistenceUnits: {state: true, type: Array},
         _selectedPersistenceUnit: {state: true},
-        _selectedEntity: {state: true},
-        _selectedEntityIndex: {state: true},
-        _currentHQL: {state: true},
-        _currentDataSet: {state: true},
-        _currentMessage: {state: true},
+        _entityTypes: {state: true, type: Array},
+        _messages: {state: true, type: Array},
         _currentPageNumber: {state: true},
         _currentNumberOfPages: {state: true},
         _allowHql: {state: true},
+        _loading: {state: true, type: Boolean}
     }
 
     constructor() {
         super();
         this._persistenceUnits = [];
         this._selectedPersistenceUnit = null;
-        this._selectedEntity = null;
-        this._selectedEntityIndex = 0;
-        this._currentHQL = null;
-        this._currentDataSet = null;
-        this._currentMessage = null;
+        this._entityTypes = [];
+        this._messages = [];
         this._currentPageNumber = 1;
         this._currentNumberOfPages = 1;
         this._pageSize = 15;
+        this._loading = false;
+        this._allowHql = false;
     }
 
     connectedCallback() {
@@ -162,21 +191,30 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
     }
 
     hotReload() {
+        this._loading = true;
         this.jsonRpc.getInfo().then(response => {
             this._persistenceUnits = response.result.persistenceUnits;
-            this._selectPersistenceUnit(this._persistenceUnits[0])
+            this._selectPersistenceUnit(this._persistenceUnits[0]);
+            this._loading = false;
+            this._addSystemMessage("Welcome to HQL Chat Console! Select a persistence unit and entity type, then enter your HQL queries.");
         }).catch(error => {
             console.error("Failed to fetch persistence units:", error);
             this._persistenceUnits = [];
+            this._loading = false;
             notifier.showErrorMessage("Failed to fetch persistence units: " + error, "bottom-start", 30);
         });
     }
 
     render() {
-        if (this._persistenceUnits) {
-            return this._renderAllPUs();
-        } else {
+        if (this._loading) {
             return this._renderFetchingProgress();
+        } else if (this._persistenceUnits && this._persistenceUnits.length > 0) {
+            return this._renderChatInterface();
+        } else {
+            return html`
+                <p>No persistence units were found.
+                    <vaadin-button @click="${this.hotReload}" theme="small">Check again</vaadin-button>
+                </p>`;
         }
     }
 
@@ -188,16 +226,123 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
             </div>`;
     }
 
-    _renderAllPUs() {
-        return this._persistenceUnits.length === 0
-            ? html`
-                    <p>No persistence units were found.
-                        <vaadin-button @click="${this.hotReload}" theme="small">Check again</vaadin-button>
-                    </p>`
-            : html`
-                    <div class="dataSources">
-                        ${this._renderTablesAndData()}
-                    </div>`;
+    _renderChatInterface() {
+        return html`
+            <div class="dataSources">
+                <div class="chat-container bordered">
+                    <div class="selector-row">
+                        <div class="pu-selector">
+                            ${this._renderDatasourcesComboBox()}
+                        </div>
+                        <div class="entity-selector">
+                            ${this._renderEntityTypesComboBox()}
+                        </div>
+                        ${!this._allowHql ? html`
+                            <vaadin-button theme="small" @click="${this._handleAllowHqlChange}">
+                                Allow HQL execution from here
+                            </vaadin-button>` : ''}
+                    </div>
+                    <div class="chat-area" id="chat-area">
+                        ${this._messages.map(msg => this._renderMessage(msg))}
+                    </div>
+                    ${this._allowHql ? html`
+                        <div class="chat-input">
+                            <vaadin-text-area class="chat-text-area" placeholder="Enter HQL query here..." id="hql-input"
+                                              @keydown="${this._handleKeyDown}"></vaadin-text-area>
+                            <vaadin-button theme="primary" @click="${this._sendQuery}">
+                                <vaadin-icon icon="font-awesome-solid:paper-plane"></vaadin-icon>
+                            </vaadin-button>
+                        </div>` : ''}
+                </div>
+            </div>`;
+    }
+
+    _renderMessage(message) {
+        if (message.type === 'user') {
+            return html`
+                <div class="message user-message">
+                    <div><strong>Query:</strong> ${message.content}</div>
+                    <div class="timestamp">${message.timestamp}</div>
+                </div>`;
+        } else if (message.type === 'error') {
+            return html`
+                <div class="message error-message">
+                    <div><strong>Error:</strong> ${message.content}</div>
+                    <div class="timestamp">${message.timestamp}</div>
+                </div>`;
+        } else if (message.type === 'result') {
+            return html`
+                <div class="message system-message">
+                    ${message.message ? html`<div><strong>Message:</strong> ${message.message}</div>` : ''}
+                    ${message.data ? html`
+                        <div class="results-card">
+                            ${this._renderResultsData(message.data)}
+                        </div>
+                        ${message.totalPages > 1 ? html`
+                            <div class="pagination">
+                                <vaadin-button theme="icon tertiary" ?disabled="${message.page === 1}"
+                                               @click="${() => this._paginateResults(message.query, message.page - 1)}">
+                                    <vaadin-icon icon="font-awesome-solid:chevron-left"></vaadin-icon>
+                                </vaadin-button>
+                                <span>Page ${message.page} of ${message.totalPages}</span>
+                                <vaadin-button theme="icon tertiary" ?disabled="${message.page >= message.totalPages}"
+                                               @click="${() => this._paginateResults(message.query, message.page + 1)}">
+                                    <vaadin-icon icon="font-awesome-solid:chevron-right"></vaadin-icon>
+                                </vaadin-button>
+                            </div>` : ''}
+                    ` : ''}
+                    <div class="timestamp">${message.timestamp}</div>
+                </div>`;
+        } else {
+            return html`
+                <div class="message system-message">
+                    <div>${message.content}</div>
+                    <div class="timestamp">${message.timestamp}</div>
+                </div>`;
+        }
+    }
+
+    _renderResultsData(data) {
+        if (!data || data.length === 0) {
+            return html`<div>No results found.</div>`;
+        }
+
+        if (typeof data[0] === 'object') {
+            return html`
+                ${data.map((item, index) => html`
+                    <div class="result-item">
+                        ${Object.entries(item).map(([key, value]) => html`
+                            <div>
+                                <span class="result-key">${key}:</span>
+                                <span>${this._formatValue(value)}</span>
+                            </div>
+                        `)}
+                    </div>
+                `)}
+            `;
+        } else {
+            return html`
+                ${data.map(value => html`
+                    <div class="result-item">${this._formatValue(value)}</div>
+                `)}
+            `;
+        }
+    }
+
+    _formatValue(value) {
+        if (value === true) {
+            return html`<vaadin-icon style="color: var(--lumo-contrast-50pct);" title="true" icon="font-awesome-regular:square-check"></vaadin-icon>`;
+        } else if (value === false) {
+            return html`<vaadin-icon style="color: var(--lumo-contrast-50pct);" title="false" icon="font-awesome-regular:square"></vaadin-icon>`;
+        } else if (value) {
+            if (typeof value === 'string' && (value.startsWith('http://') || value.startsWith('https://'))) {
+                return html`<a href="${value}" target="_blank">${value}</a>`;
+            } else {
+                const s = typeof value === 'object' ? JSON.stringify(value) : value;
+                return html`<span>${s}</span>`;
+            }
+        }
+        return html`<span>null</span>`;
     }
 
     _renderDatasourcesComboBox() {
@@ -214,6 +359,17 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
         `;
     }
 
+    _renderEntityTypesComboBox() {
+        return html`
+            <vaadin-combo-box
+                label="Entity Type"
+                .items="${this._entityTypes}"
+                @value-changed="${this._onEntityTypeChanged}"
+                .allowCustomValue="${false}"
+            ></vaadin-combo-box>
+        `;
+    }
+
     _onPersistenceUnitChanged(event) {
         const selectedValue = event.detail.value;
         this._selectPersistenceUnit(this._persistenceUnits.find(unit => unit.name === selectedValue))
@@ -221,129 +377,28 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
 
     _selectPersistenceUnit(pu) {
         this._selectedPersistenceUnit = pu;
-        this._selectedEntityIndex = 0;
-        this._selectedEntity = pu && pu.managedEntities[0] || null;
-    }
 
-    _renderTablesAndData() {
-        return html`
-            <div class="tablesAndData">
-                <div class="tables">
-                    ${this._renderDatasourcesComboBox()}
-                    ${this._renderTables()}
-                </div>
-                <div class="tableData bordered">
-                    ${this._renderDataAndInput()}
-                </div>
-            </div>`;
-    }
-
-    _renderTables() {
-        if (this._selectedPersistenceUnit) {
-            if (this._selectedPersistenceUnit.reactive) {
-                return; // Reactive persistence units are not supported
+        // Update entity types when persistence unit changes
+        if (pu) {
+            if (pu.reactive) {
+                this._addSystemMessage("Reactive persistence units are not supported in this console, please use a blocking one.");
             }
-            return html`
-                <qui-card class="tablesCard" header="Entities">
-                    <div slot="content">
-                        <vaadin-list-box selected="${this._selectedEntityIndex}"
-                                         @selected-changed="${this._onEntityChanged}">
-                            ${this._selectedPersistenceUnit.managedEntities.map((entity) =>
-                                    html`
-                                        <vaadin-item>${entity.name}</vaadin-item>`
-                            )}
-                        </vaadin-list-box>
-                    </div>
-                </qui-card>`;
+            else {
+                // Extract entity types from the persistence unit
+                this._entityTypes = pu.managedEntities ? pu.managedEntities.map(entity => entity.name) : [];
+            }
         } else {
-            return this._renderFetchingProgress();
+            this._entityTypes = [];
         }
     }
 
-    _onEntityChanged(event) {
-        this._selectedEntityIndex = event.detail.value;
-        this._selectedEntity = this._selectedPersistenceUnit.managedEntities[this._selectedEntityIndex];
-        this._clearHqlInput();
-    }
-
-    _clearHqlInput() {
-        if (this._selectedEntity) {
-            this._executeHQL("from " + this._selectedEntity.name);
-        } else {
-            this._currentDataSet = [];
-        }
-    }
-
-    _executeHQL(hql) {
-        this._currentPageNumber = 1;
-        this._currentHQL = hql.trim();
-        this._executeCurrentHQL();
-    }
-
-    _executeClicked() {
-        let newValue = this.shadowRoot.getElementById('hql').getAttribute('value');
-        this._executeHQL(newValue);
-    }
-
-    _executeCurrentHQL() {
-        if (this._currentHQL) {
-            this._currentDataSet = null; // indicates loading
-            this._currentMessage = null;
-
-            this.jsonRpc.executeHQL({
-                persistenceUnit: this._selectedPersistenceUnit.name,
-                hql: this._currentHQL,
-                pageNumber: this._currentPageNumber,
-                pageSize: this._pageSize
-            }).then(jsonRpcResponse => {
-                const error = jsonRpcResponse.error && jsonRpcResponse.error.message || jsonRpcResponse.result.error;
-                if (error) {
-                    this._currentDataSet = [];
-                    notifier.showErrorMessage("Error executing query: " + error, "bottom-start");
-                } else if (jsonRpcResponse.result.message) {
-                    this._currentMessage = jsonRpcResponse.result.message;
-                } else {
-                    this._currentDataSet = jsonRpcResponse.result;
-                    this._currentNumberOfPages = this._getNumberOfPages();
-                }
-            });
-        }
-    }
-
-    // *** data table and HQL input ***
-
-    _renderDataAndInput() {
-        if (this._selectedPersistenceUnit.reactive) {
-            return html`
-                <span style="padding-top:20px;padding-left:20px;">Reactive persistence units are not supported in this console, please use a blocking one.</span>`;
-        }
-        return html`
-            ${this._renderHqlInput()}
-            <div tab="data-tab" style="height:100%;">${this._renderTableData()}</div>`;
-    }
-
-    _renderHqlInput() {
-        if (this._allowHql) {
-            return html`
-                <div class="hqlInput">
-                    <qui-code-block @shiftEnter=${this._shiftEnterPressed} class="font-large cursor-text"
-                                    content="${this._currentHQL}" id="hql"
-                                    mode="sql" theme="dark" value='${this._currentHQL}' editable></qui-code-block>
-                    <vaadin-button class="no-margin" slot="suffix" theme="icon" aria-label="Clear">
-                        <vaadin-tooltip .hoverDelay=${500} slot="tooltip" text="Clear"></vaadin-tooltip>
-                        <vaadin-icon class="small-icon" @click=${this._clearHqlInput}
-                                     icon="font-awesome-solid:trash"></vaadin-icon>
-                    </vaadin-button>
-                    <vaadin-button class="no-margin" slot="suffix" theme="icon" aria-label="Run">
-                        <vaadin-tooltip .hoverDelay=${500} slot="tooltip" text="Run"></vaadin-tooltip>
-                        <vaadin-icon class="small-icon" @click=${this._executeClicked}
-                                     icon="font-awesome-solid:play"></vaadin-icon>
-                    </vaadin-button>
-                </div>`;
-        } else {
-            return html`
-                <vaadin-button theme="small" @click="${this._handleAllowHqlChange}">Allow HQL execution from here
-                </vaadin-button>`;
+    _onEntityTypeChanged(event) {
+        const selectedEntityType = event.detail.value;
+        if (selectedEntityType) {
+            const input = this.shadowRoot.getElementById('hql-input');
+            if (input) {
+                input.value = `from ${selectedEntityType}`;
+            }
         }
     }
 
@@ -353,136 +408,123 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
             'value': 'true'
         }).then(e => {
             this._allowHql = true;
+            this._addSystemMessage("HQL execution is now enabled. You can start entering queries below.");
         });
     }
 
-    _shiftEnterPressed(event) {
-        this._executeHQL(event.detail.content);
-    }
-
-    _renderTableData() {
-        if (this._selectedEntity) {
-            if (this._currentMessage) {
-                return html`
-                    <div class="data"><span style="padding-top:20px;">${this._currentMessage}</span></div>`;
-            } else if (this._currentDataSet) {
-                return html`
-                    <div class="data">
-                        <vaadin-grid id="data-grid" .items="${this._currentDataSet.data}" theme="row-stripes no-border"
-                                     class="fill" column-reordering-allowed>
-                            ${this._renderTableRows(this._currentDataSet.data)}
-                            <span slot="empty-state">No data.</span>
-                        </vaadin-grid>
-                        ${this._renderPager()}
-                    </div>`;
-            }
-        }
-
-        return html`
-            <div style="color: var(--lumo-secondary-text-color);width: 95%;padding-top:20px;">
-                <div>Fetching data...</div>
-                <vaadin-progress-bar indeterminate></vaadin-progress-bar>
-            </div>`;
-    }
-
-    _renderTableRows(data) {
-        if (!data || data.length === 0) {
-            return html``;
-        }
-
-        const firstResult = data.find(e => !!e); // first non-null element
-        if (typeof firstResult === 'object') {
-            return Object.keys(this._currentDataSet.data[0]).map((col) => {
-                return html`
-                    <vaadin-grid-sort-column path="${col}" header="${col}" auto-width resizable ${columnBodyRenderer(
-                            (item) => this._cellRenderer(item[col]),
-                            []
-                    )}></vaadin-grid-sort-column>`;
-            });
-        } else {
-            return html`
-                <vaadin-grid-sort-column header="0" auto-width resizable ${columnBodyRenderer(
-                        (value) => this._cellRenderer(value),
-                        []
-                )}></vaadin-grid-sort-column>`;
+    _handleKeyDown(event) {
+        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault();
+            this._sendQuery();
         }
     }
 
-    _cellRenderer(value) {
-        if ( value === true ) {
-            return html`
-                <vaadin-icon style="color: var(--lumo-contrast-50pct);" title="${value}"
-                             icon="font-awesome-regular:square-check"></vaadin-icon>`;
-        }
-        else if ( value === false ) {
-            return html`
-                <vaadin-icon style="color: var(--lumo-contrast-50pct);" title="${value}"
-                             icon="font-awesome-regular:square"></vaadin-icon>`;
-        }
-        else if ( value ) {
-            if ( typeof value === 'string' && (value.startsWith( 'http://' ) || value.startsWith( 'https://' )) ) {
-                return html`<a href="${value}" target="_blank">${value}</a>`;
-            }
-            else {
-                const s = typeof value === 'object' ? JSON.stringify( value ) : value;
-                return html`<span>${s}</span>`;
-            }
-        }
+    _sendQuery() {
+        const input = this.shadowRoot.getElementById('hql-input');
+        const query = input.value.trim();
+
+        if (!query) return;
+
+        this._addUserMessage(query);
+        input.value = '';
+
+        this._executeHQL(query, 1);
+
+        // Scroll to bottom
+        setTimeout(() => {
+            const chatArea = this.shadowRoot.getElementById('chat-area');
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }, 100);
     }
 
-    // *** pager and page handling ***
+    _executeHQL(hql, pageNumber) {
+        if (!hql || !this._selectedPersistenceUnit) return;
 
-    _renderPager() {
-        return html`
-            <div class="pager">
-                ${this._renderPreviousPageButton()}
-                <span>${this._currentPageNumber} of ${this._currentNumberOfPages}</span>
-                ${this._renderNextPageButton()}
-            </div>`;
-    }
+        this._loading = true;
 
-    _renderPreviousPageButton() {
-        let klas = "pageButton";
-        if (this._currentPageNumber === 1) {
-            klas = "hidden";
-        }
-        return html`
-            <vaadin-button theme="icon tertiary" aria-label="Previous" @click=${this._previousPage} class="${klas}">
-                <vaadin-icon icon="font-awesome-solid:circle-chevron-left"></vaadin-icon>
-            </vaadin-button>`;
-    }
+        this.jsonRpc.executeHQL({
+            persistenceUnit: this._selectedPersistenceUnit.name,
+            hql: hql,
+            pageNumber: pageNumber,
+            pageSize: this._pageSize
+        }).then(jsonRpcResponse => {
+            this._loading = false;
 
-    _renderNextPageButton() {
-        let klas = "pageButton";
-        if (this._currentPageNumber === this._currentNumberOfPages) {
-            klas = "hidden";
-        }
-        return html`
-            <vaadin-button theme="icon tertiary" aria-label="Next" @click=${this._nextPage} class="${klas}">
-                <vaadin-icon icon="font-awesome-solid:circle-chevron-right"></vaadin-icon>
-            </vaadin-button>`;
-    }
+            const error = jsonRpcResponse.error && jsonRpcResponse.error.message ||
+                (jsonRpcResponse.result && jsonRpcResponse.result.error);
 
-    _previousPage() {
-        if (this._currentPageNumber !== 1) {
-            this._currentPageNumber = this._currentPageNumber - 1;
-            this._executeCurrentHQL();
-        }
-    }
-
-    _nextPage() {
-        this._currentPageNumber = this._currentPageNumber + 1;
-        this._executeCurrentHQL();
-    }
-
-    _getNumberOfPages() {
-        if (this._currentDataSet) {
-            if (this._currentDataSet.totalNumberOfElements > this._pageSize) {
-                return Math.ceil(this._currentDataSet.totalNumberOfElements / this._pageSize);
+            if (error) {
+                this._addErrorMessage(error);
+            } else if (jsonRpcResponse.result.message) {
+                this._addResultMessage({
+                    message: jsonRpcResponse.result.message,
+                    data: null,
+                    query: hql,
+                    page: pageNumber,
+                    totalPages: 1
+                });
             } else {
-                return 1;
+                const result = jsonRpcResponse.result;
+                const totalPages = Math.ceil(result.totalNumberOfElements / this._pageSize) || 1;
+
+                this._addResultMessage({
+                    message: null,
+                    data: result.data,
+                    query: hql,
+                    page: pageNumber,
+                    totalPages: totalPages
+                });
             }
-        }
+
+            // Scroll to bottom after results are displayed
+            setTimeout(() => {
+                const chatArea = this.shadowRoot.getElementById('chat-area');
+                chatArea.scrollTop = chatArea.scrollHeight;
+            }, 100);
+        }).catch(error => {
+            this._loading = false;
+            this._addErrorMessage("Failed to execute query: " + error);
+        });
+    }
+
+    _paginateResults(query, pageNumber) {
+        this._executeHQL(query, pageNumber);
+    }
+
+    _addUserMessage(content) {
+        this._messages = [...this._messages, {
+            type: 'user',
+            content,
+            timestamp: this._getCurrentTime()
+        }];
+    }
+
+    _addSystemMessage(content) {
+        this._messages = [...this._messages, {
+            type: 'system',
+            content,
+            timestamp: this._getCurrentTime()
+        }];
+    }
+
+    _addErrorMessage(content) {
+        this._messages = [...this._messages, {
+            type: 'error',
+            content,
+            timestamp: this._getCurrentTime()
+        }];
+    }
+
+    _addResultMessage(result) {
+        this._messages = [...this._messages, {
+            type: 'result',
+            ...result,
+            timestamp: this._getCurrentTime()
+        }];
+    }
+
+    _getCurrentTime() {
+        return new Date().toLocaleTimeString();
     }
 }
 
