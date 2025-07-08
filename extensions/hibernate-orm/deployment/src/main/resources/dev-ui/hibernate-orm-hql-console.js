@@ -39,16 +39,36 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
             padding-right: 20px;
         }
 
+        .selector-section {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
         .selector-row {
             display: flex;
             gap: 10px;
-            margin-bottom: 10px;
             flex-wrap: wrap;
+            align-items: flex-end;
         }
 
         .pu-selector, .entity-selector {
             flex-grow: 1;
             min-width: 200px;
+        }
+
+        .entity-suggestions {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .suggestion-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-bottom: 5px;
         }
 
         .chat-area {
@@ -230,17 +250,19 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
         return html`
             <div class="dataSources">
                 <div class="chat-container bordered">
-                    <div class="selector-row">
-                        <div class="pu-selector">
-                            ${this._renderDatasourcesComboBox()}
+                    <div class="selector-section">
+                        <div class="selector-row">
+                            <div class="pu-selector">
+                                ${this._renderDatasourcesComboBox()}
+                            </div>
+                            <div class="entity-selector">
+                                ${this._renderEntityTypes()}
+                            </div>
+                            ${!this._allowHql ? html`
+                        <vaadin-button theme="small" @click="${this._handleAllowHqlChange}">
+                            Allow HQL execution from here
+                        </vaadin-button>` : ''}
                         </div>
-                        <div class="entity-selector">
-                            ${this._renderEntityTypesComboBox()}
-                        </div>
-                        ${!this._allowHql ? html`
-                            <vaadin-button theme="small" @click="${this._handleAllowHqlChange}">
-                                Allow HQL execution from here
-                            </vaadin-button>` : ''}
                     </div>
                     <div class="chat-area" id="chat-area">
                         ${this._messages.map(msg => this._renderMessage(msg))}
@@ -359,15 +381,28 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
         `;
     }
 
-    _renderEntityTypesComboBox() {
+    _renderEntityTypes() {
         return html`
-            <vaadin-combo-box
-                label="Entity Type"
-                .items="${this._entityTypes}"
-                @value-changed="${this._onEntityTypeChanged}"
-                .allowCustomValue="${false}"
-            ></vaadin-combo-box>
+            <div class="entity-suggestions">
+                <vaadin-combo-box
+                        label="Entity Types"
+                        .items="${this._entityTypes}"
+                        placeholder="Select entity to use..."
+                        @value-changed="${(e) => this._insertEntityName(e.detail.value)}"
+                        clear-button-visible
+                ></vaadin-combo-box>
+            </div>
         `;
+    }
+
+    _insertEntityName(entityName) {
+        if (entityName) {
+            const input = this.shadowRoot.getElementById('hql-input');
+            if (input) {
+                input.value = `from ${entityName}`;
+                input.focus();
+            }
+        }
     }
 
     _onPersistenceUnitChanged(event) {
@@ -389,16 +424,6 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
             }
         } else {
             this._entityTypes = [];
-        }
-    }
-
-    _onEntityTypeChanged(event) {
-        const selectedEntityType = event.detail.value;
-        if (selectedEntityType) {
-            const input = this.shadowRoot.getElementById('hql-input');
-            if (input) {
-                input.value = `from ${selectedEntityType}`;
-            }
         }
     }
 
