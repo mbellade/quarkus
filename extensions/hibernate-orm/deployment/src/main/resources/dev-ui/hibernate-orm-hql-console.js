@@ -181,6 +181,90 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+
+        .expandable-json {
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .expand-collapse-btn {
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--lumo-contrast-10pct);
+            border: none;
+            cursor: pointer;
+            margin-right: 5px;
+        }
+
+        .nested-table {
+            margin-left: 20px;
+            margin-top: 8px;
+            max-width: 100%;
+            overflow-x: auto;
+            border-left: 2px solid var(--lumo-contrast-10pct);
+            padding-left: 10px;
+        }
+
+        .table-container {
+            width: 100%;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+
+        .table-container table {
+            width: 100%;
+            border-collapse: collapse;
+            border-spacing: 0;
+        }
+
+        .table-container th {
+            text-align: left;
+            padding: 8px 12px;
+            font-weight: bold;
+            background-color: var(--lumo-contrast-5pct);
+            border-bottom: 1px solid var(--lumo-contrast-20pct);
+            white-space: nowrap;
+        }
+
+        .table-container td {
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--lumo-contrast-10pct);
+            vertical-align: top;
+        }
+
+        /* Alternate row colors for better readability */
+        .table-container tbody tr:nth-child(even) {
+            background-color: var(--lumo-contrast-5pct);
+        }
+
+        .nested-table table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .nested-table th {
+            text-align: left;
+            padding: 4px 8px;
+            font-weight: bold;
+            background-color: var(--lumo-contrast-5pct);
+            border-bottom: 1px solid var(--lumo-contrast-20pct);
+        }
+
+        .nested-table td {
+            padding: 4px 8px;
+            border-bottom: 1px solid var(--lumo-contrast-10pct);
+            vertical-align: top;
+        }
+
+        .json-preview {
+            color: var(--lumo-secondary-text-color);
+        }
     `;
 
     static properties = {
@@ -353,26 +437,7 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
             return html`<div>No results found.</div>`;
         }
 
-        if (typeof data[0] === 'object') {
-            return html`
-                ${data.map((item) => html`
-                    <div class="result-item">
-                        ${Object.entries(item).map(([key, value]) => html`
-                            <div>
-                                <span class="result-key">${key}:</span>
-                                <span>${this._formatValue(value)}</span>
-                            </div>
-                        `)}
-                    </div>
-                `)}
-            `;
-        } else {
-            return html`
-                ${data.map(value => html`
-                    <div class="result-item">${this._formatValue(value)}</div>
-                `)}
-            `;
-        }
+        return this._renderArrayTable(data, false);
     }
 
     _formatValue(value) {
@@ -380,15 +445,148 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
             return html`<vaadin-icon style="color: var(--lumo-contrast-50pct);" title="true" icon="font-awesome-regular:square-check"></vaadin-icon>`;
         } else if (value === false) {
             return html`<vaadin-icon style="color: var(--lumo-contrast-50pct);" title="false" icon="font-awesome-regular:square"></vaadin-icon>`;
-        } else if (value) {
-            if (typeof value === 'string' && (value.startsWith('http://') || value.startsWith('https://'))) {
-                return html`<a href="${value}" target="_blank">${value}</a>`;
-            } else {
-                const s = typeof value === 'object' ? JSON.stringify(value) : value;
-                return html`<span>${s}</span>`;
-            }
+        } else if (value === null || value === undefined) {
+            return html`<span>null</span>`;
+        } else if (typeof value === 'object') {
+            return this._renderExpandableJson(value);
+        } else if (typeof value === 'string' && (value.startsWith('http://') || value.startsWith('https://'))) {
+            return html`<a href="${value}" target="_blank">${value}</a>`;
+        } else {
+            return html`<span>${value}</span>`;
         }
-        return html`<span>null</span>`;
+    }
+
+    _renderExpandableJson(value) {
+        const isArray = Array.isArray(value);
+        const preview = isArray
+            ? `Array[${value.length}]`
+            : `Object{${Object.keys(value).length} properties}`;
+
+        // Generate a unique ID for this expandable section
+        const expandId = `expand-${Math.random().toString(36).substring(2, 11)}`;
+
+        return html`
+            <div class="expandable-json">
+                <button class="expand-collapse-btn" @click="${(e) => this._toggleExpand(e, expandId)}">+</button>
+                <span class="json-preview">${preview}</span>
+                <div id="${expandId}" class="nested-table" style="display: none">
+                    ${isArray
+                            ? this._renderArrayTable(value, true) // true means this is nested
+                            : this._renderObjectTable(value)}
+                </div>
+            </div>
+        `;
+    }
+
+    _toggleExpand(e, expandId) {
+        e.stopPropagation();
+        const element = this.renderRoot.querySelector(`#${expandId}`);
+        const button = e.target;
+
+        if (element.style.display === 'none') {
+            element.style.display = 'block';
+            button.textContent = '-';
+        } else {
+            element.style.display = 'none';
+            button.textContent = '+';
+        }
+    }
+
+    _renderArrayTable(array, isNested = false) {
+        if (array.length === 0) {
+            return html`<div style="font-style: italic; color: var(--lumo-tertiary-text-color);">[empty array]</div>`;
+        }
+
+        // Check if we need a complex table (objects) or a simple list
+        const isComplexArray = array.some(item => typeof item === 'object' && item !== null);
+
+        // Use appropriate container class based on whether this is nested
+        const containerClass = isNested ? "table-container" : "table-container";
+
+        if (isComplexArray) {
+            // Get all possible keys from objects in the array
+            const keys = new Set();
+            array.forEach(item => {
+                if (typeof item === 'object' && item !== null) {
+                    Object.keys(item).forEach(key => keys.add(key));
+                }
+            });
+
+            return html`
+                <div class="${containerClass}">
+                    <table>
+                        <thead>
+                        <tr>
+                            ${[...keys].map(key => html`<th>${key}</th>`)}
+                        </tr>
+                        </thead>
+                        <tbody>
+                        ${array.map(item => {
+                            if (typeof item === 'object' && item !== null) {
+                                return html`
+                                    <tr>
+                                        ${[...keys].map(key => html`
+                                            <td>${this._formatValue(item[key])}</td>
+                                        `)}
+                                    </tr>
+                                `;
+                            }
+                            return '';
+                        })}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        } else {
+            // Simple table for primitive values
+            return html`
+                <div class="${containerClass}">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>Index</th>
+                            <th>Value</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        ${array.map((item, index) => html`
+                            <tr>
+                                <td style="width: 50px;">${index}</td>
+                                <td>${this._formatValue(item)}</td>
+                            </tr>
+                        `)}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+    }
+
+    _renderObjectTable(obj) {
+        return html`
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Property</th>
+                        <th>Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${Object.entries(obj).map(([key, value]) => html`
+                        <tr>
+                            <td style="width: 30%;">${key}</td>
+                            <td>${this._formatValue(value)}</td>
+                        </tr>
+                    `)}
+                </tbody>
+            </table>
+        </div>
+    `;
+    }
+
+    _capitalize(string) {
+        return string.charAt(0).toUpperCase() + string.slice(1);
     }
 
     _renderDatasourcesComboBox() {
