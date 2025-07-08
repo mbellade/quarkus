@@ -54,7 +54,6 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
         }
 
         .pu-selector, .entity-selector {
-            flex-grow: 1;
             min-width: 200px;
         }
 
@@ -171,6 +170,17 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
         .hidden {
             display: none;
         }
+
+        .spinner {
+            animation: spin 1s linear infinite;
+            font-size: var(--lumo-font-size-xl);
+            color: var(--lumo-primary-color);
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     `;
 
     static properties = {
@@ -216,7 +226,6 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
             this._persistenceUnits = response.result.persistenceUnits;
             this._selectPersistenceUnit(this._persistenceUnits[0]);
             this._loading = false;
-            this._addSystemMessage("Welcome to HQL Chat Console! Select a persistence unit and entity type, then enter your HQL queries.");
         }).catch(error => {
             console.error("Failed to fetch persistence units:", error);
             this._persistenceUnits = [];
@@ -292,47 +301,50 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
     }
 
     _renderMessage(message) {
-        if (message.type === 'user') {
+        if (message.type === 'loading') {
             return html`
-                <div class="message user-message">
-                    <div><strong>Query:</strong> ${message.content}</div>
-                    <div class="timestamp">${message.timestamp}</div>
-                </div>`;
+            <div class="message system-message">
+                <div style="display: flex; justify-content: center; align-items: center;">
+                    <vaadin-icon icon="font-awesome-solid:circle-notch" class="spinner"></vaadin-icon>
+                </div>
+            </div>`;
+        } else if (message.type === 'user') {
+            return html`
+            <div class="message user-message">
+                <div><strong>Query:</strong> ${message.content}</div>
+            </div>`;
         } else if (message.type === 'error') {
             return html`
-                <div class="message error-message">
-                    <div><strong>Error:</strong> ${message.content}</div>
-                    <div class="timestamp">${message.timestamp}</div>
-                </div>`;
+            <div class="message error-message">
+                <div><strong>Error:</strong> ${message.content}</div>
+            </div>`;
         } else if (message.type === 'result') {
             return html`
-                <div class="message system-message">
-                    ${message.message ? html`<div><strong>Message:</strong> ${message.message}</div>` : ''}
-                    ${message.data ? html`
-                        <div class="results-card">
-                            ${this._renderResultsData(message.data)}
-                        </div>
-                        ${message.totalPages > 1 ? html`
-                            <div class="pagination">
-                                <vaadin-button theme="icon tertiary" ?disabled="${message.page === 1}"
-                                               @click="${() => this._paginateResults(message.query, message.page - 1)}">
-                                    <vaadin-icon icon="font-awesome-solid:chevron-left"></vaadin-icon>
-                                </vaadin-button>
-                                <span>Page ${message.page} of ${message.totalPages}</span>
-                                <vaadin-button theme="icon tertiary" ?disabled="${message.page >= message.totalPages}"
-                                               @click="${() => this._paginateResults(message.query, message.page + 1)}">
-                                    <vaadin-icon icon="font-awesome-solid:chevron-right"></vaadin-icon>
-                                </vaadin-button>
-                            </div>` : ''}
-                    ` : ''}
-                    <div class="timestamp">${message.timestamp}</div>
-                </div>`;
+            <div class="message system-message">
+                ${message.message ? html`<div><strong>Message:</strong> ${message.message}</div>` : ''}
+                ${message.data ? html`
+                    <div class="results-card">
+                        ${this._renderResultsData(message.data)}
+                    </div>
+                    ${message.totalPages > 1 ? html`
+                        <div class="pagination">
+                            <vaadin-button theme="icon tertiary" ?disabled="${message.page === 1}"
+                                           @click="${() => this._paginateResults(message.query, message.page - 1)}">
+                                <vaadin-icon icon="font-awesome-solid:chevron-left"></vaadin-icon>
+                            </vaadin-button>
+                            <span>Page ${message.page} of ${message.totalPages}</span>
+                            <vaadin-button theme="icon tertiary" ?disabled="${message.page >= message.totalPages}"
+                                           @click="${() => this._paginateResults(message.query, message.page + 1)}">
+                                <vaadin-icon icon="font-awesome-solid:chevron-right"></vaadin-icon>
+                            </vaadin-button>
+                        </div>` : ''}
+                ` : ''}
+            </div>`;
         } else {
             return html`
-                <div class="message system-message">
-                    <div>${message.content}</div>
-                    <div class="timestamp">${message.timestamp}</div>
-                </div>`;
+            <div class="message system-message">
+                <div>${message.content}</div>
+            </div>`;
         }
     }
 
@@ -343,7 +355,7 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
 
         if (typeof data[0] === 'object') {
             return html`
-                ${data.map((item, index) => html`
+                ${data.map((item) => html`
                     <div class="result-item">
                         ${Object.entries(item).map(([key, value]) => html`
                             <div>
@@ -475,7 +487,12 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
     _executeHQL(hql, pageNumber) {
         if (!hql || !this._selectedPersistenceUnit) return;
 
-        this._loading = true;
+        // Create a loading message instead of setting global loading state
+        const loadingMessageIndex = this._messages.length;
+        this._messages = [...this._messages, {
+            type: 'loading',
+            query: hql
+        }];
 
         this.jsonRpc.executeHQL({
             persistenceUnit: this._selectedPersistenceUnit.name,
@@ -483,33 +500,44 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
             pageNumber: pageNumber,
             pageSize: this._pageSize
         }).then(jsonRpcResponse => {
-            this._loading = false;
+            // Clone the messages array to modify it
+            const updatedMessages = [...this._messages];
 
             const error = jsonRpcResponse.error && jsonRpcResponse.error.message ||
                 (jsonRpcResponse.result && jsonRpcResponse.result.error);
 
             if (error) {
-                this._addErrorMessage(error);
+                // Replace loading message with error
+                updatedMessages[loadingMessageIndex] = {
+                    type: 'error',
+                    content: error
+                };
             } else if (jsonRpcResponse.result.message) {
-                this._addResultMessage({
+                // Replace loading message with result message
+                updatedMessages[loadingMessageIndex] = {
+                    type: 'result',
                     message: jsonRpcResponse.result.message,
                     data: null,
                     query: hql,
                     page: pageNumber,
                     totalPages: 1
-                });
+                };
             } else {
                 const result = jsonRpcResponse.result;
                 const totalPages = Math.ceil(result.totalNumberOfElements / this._pageSize) || 1;
 
-                this._addResultMessage({
+                // Replace loading message with result data
+                updatedMessages[loadingMessageIndex] = {
+                    type: 'result',
                     message: null,
                     data: result.data,
                     query: hql,
                     page: pageNumber,
                     totalPages: totalPages
-                });
+                };
             }
+
+            this._messages = updatedMessages;
 
             // Scroll to bottom after results are displayed
             setTimeout(() => {
@@ -517,8 +545,13 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
                 chatArea.scrollTop = chatArea.scrollHeight;
             }, 100);
         }).catch(error => {
-            this._loading = false;
-            this._addErrorMessage("Failed to execute query: " + error);
+            // Replace loading message with error on exception
+            const updatedMessages = [...this._messages];
+            updatedMessages[loadingMessageIndex] = {
+                type: 'error',
+                content: "Failed to execute query: " + error
+            };
+            this._messages = updatedMessages;
         });
     }
 
@@ -529,32 +562,28 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
     _addUserMessage(content) {
         this._messages = [...this._messages, {
             type: 'user',
-            content,
-            timestamp: this._getCurrentTime()
+            content
         }];
     }
 
     _addSystemMessage(content) {
         this._messages = [...this._messages, {
             type: 'system',
-            content,
-            timestamp: this._getCurrentTime()
+            content
         }];
     }
 
     _addErrorMessage(content) {
         this._messages = [...this._messages, {
             type: 'error',
-            content,
-            timestamp: this._getCurrentTime()
+            content
         }];
     }
 
     _addResultMessage(result) {
         this._messages = [...this._messages, {
             type: 'result',
-            ...result,
-            timestamp: this._getCurrentTime()
+            ...result
         }];
     }
 
