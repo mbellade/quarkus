@@ -111,7 +111,7 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
         .chat-input {
             display: flex;
             gap: 10px;
-            align-items: flex-end;
+            align-items: center;
         }
 
         .chat-text-area {
@@ -259,9 +259,9 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
                                 ${this._renderEntityTypes()}
                             </div>
                             ${!this._allowHql ? html`
-                        <vaadin-button theme="small" @click="${this._handleAllowHqlChange}">
-                            Allow HQL execution from here
-                        </vaadin-button>` : ''}
+                                <vaadin-button theme="small" @click="${this._handleAllowHqlChange}">
+                                    Allow HQL execution from here
+                                </vaadin-button>` : ''}
                         </div>
                     </div>
                     <div class="chat-area" id="chat-area">
@@ -270,13 +270,25 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
                     ${this._allowHql ? html`
                         <div class="chat-input">
                             <vaadin-text-area class="chat-text-area" placeholder="Enter HQL query here..." id="hql-input"
-                                              @keydown="${this._handleKeyDown}"></vaadin-text-area>
-                            <vaadin-button theme="primary" @click="${this._sendQuery}">
-                                <vaadin-icon icon="font-awesome-solid:paper-plane"></vaadin-icon>
+                                              @keydown="${this._handleKeyDown}" style="height: 40px;"></vaadin-text-area>
+                            <vaadin-button theme="contrast" @click="${this._clearInput}">
+                                <vaadin-icon icon="font-awesome-solid:trash"></vaadin-icon>
+                            </vaadin-button>
+                            <vaadin-button theme="primary" @click="${this._sendQuery}"
+                                           ?disabled="${this._selectedPersistenceUnit?.reactive}">
+                                <vaadin-icon icon="font-awesome-solid:play"></vaadin-icon>
                             </vaadin-button>
                         </div>` : ''}
                 </div>
             </div>`;
+    }
+
+    _clearInput() {
+        const input = this.renderRoot.querySelector('#hql-input');
+        if (input) {
+            input.value = '';
+            input.focus();
+        }
     }
 
     _renderMessage(message) {
@@ -397,7 +409,7 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
 
     _insertEntityName(entityName) {
         if (entityName) {
-            const input = this.shadowRoot.getElementById('hql-input');
+            const input = this.renderRoot.querySelector('#hql-input');
             if (input) {
                 input.value = `from ${entityName}`;
                 input.focus();
@@ -438,6 +450,11 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
     }
 
     _handleKeyDown(event) {
+        // Don't execute queries for reactive persistence units
+        if (this._selectedPersistenceUnit?.reactive) {
+            return;
+        }
+
         if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
             event.preventDefault();
             this._sendQuery();
@@ -445,21 +462,14 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
     }
 
     _sendQuery() {
-        const input = this.shadowRoot.getElementById('hql-input');
+        const input = this.renderRoot.querySelector('#hql-input');
         const query = input.value.trim();
 
         if (!query) return;
 
         this._addUserMessage(query);
-        input.value = '';
 
         this._executeHQL(query, 1);
-
-        // Scroll to bottom
-        setTimeout(() => {
-            const chatArea = this.shadowRoot.getElementById('chat-area');
-            chatArea.scrollTop = chatArea.scrollHeight;
-        }, 100);
     }
 
     _executeHQL(hql, pageNumber) {
@@ -503,7 +513,7 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
 
             // Scroll to bottom after results are displayed
             setTimeout(() => {
-                const chatArea = this.shadowRoot.getElementById('chat-area');
+                const chatArea = this.renderRoot.querySelector('#chat-area');
                 chatArea.scrollTop = chatArea.scrollHeight;
             }, 100);
         }).catch(error => {
