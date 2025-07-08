@@ -122,8 +122,6 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
             padding: 10px;
             border-radius: var(--lumo-border-radius-m);
             margin-top: 5px;
-            max-height: 300px;
-            overflow-y: auto;
             border: 1px solid var(--lumo-contrast-20pct);
         }
 
@@ -185,11 +183,12 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
         .expandable-json {
             cursor: pointer;
             display: flex;
-            align-items: center;
+            flex-direction: column;
             gap: 5px;
         }
 
         .expand-collapse-btn {
+            align-self: flex-start;
             display: inline-flex;
             justify-content: center;
             align-items: center;
@@ -202,23 +201,24 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
             margin-right: 5px;
         }
 
-        .nested-table {
-            margin-left: 20px;
-            margin-top: 8px;
-            max-width: 100%;
-            overflow-x: auto;
-            border-left: 2px solid var(--lumo-contrast-10pct);
-            padding-left: 10px;
+        .json-preview-container {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+            padding: 2px 4px;
+            border-radius: var(--lumo-border-radius-s);
         }
 
-        .table-container {
-            width: 100%;
-            overflow-x: auto;
-            margin: 10px 0;
+        .json-preview-container:hover {
+            background-color: var(--lumo-contrast-5pct);
+        }
+
+        .json-preview {
+            color: var(--lumo-secondary-text-color);
         }
 
         .table-container table {
-            width: 100%;
             border-collapse: collapse;
             border-spacing: 0;
         }
@@ -238,11 +238,17 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
             vertical-align: top;
         }
 
-        /* Alternate row colors for better readability */
         .table-container tbody tr:nth-child(even) {
             background-color: var(--lumo-contrast-5pct);
         }
 
+        .nested-table {
+            width: 100%;
+            margin-top: 8px;
+            border-left: 2px solid var(--lumo-contrast-10pct);
+            padding: 0 10px;
+        }
+        
         .nested-table table {
             width: 100%;
             border-collapse: collapse;
@@ -260,10 +266,6 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
             padding: 4px 8px;
             border-bottom: 1px solid var(--lumo-contrast-10pct);
             vertical-align: top;
-        }
-
-        .json-preview {
-            color: var(--lumo-secondary-text-color);
         }
     `;
 
@@ -395,7 +397,7 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
         } else if (message.type === 'user') {
             return html`
             <div class="message user-message">
-                <div><strong>Query:</strong> ${message.content}</div>
+                <div><strong>${message.content}</div>
             </div>`;
         } else if (message.type === 'error') {
             return html`
@@ -405,7 +407,7 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
         } else if (message.type === 'result') {
             return html`
             <div class="message system-message">
-                ${message.message ? html`<div><strong>Message:</strong> ${message.message}</div>` : ''}
+                ${message.message ? html`<div>${message.message}</div>` : ''}
                 ${message.data ? html`
                     <div class="results-card">
                         ${this._renderResultsData(message.data)}
@@ -467,8 +469,9 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
 
         return html`
             <div class="expandable-json">
-                <button class="expand-collapse-btn" @click="${(e) => this._toggleExpand(e, expandId)}">+</button>
-                <span class="json-preview">${preview}</span>
+                <div class="json-preview-container" @click="${(e) => this._toggleExpand(e, expandId)}">
+                    <span class="json-preview">[+] ${preview}</span>
+                </div>
                 <div id="${expandId}" class="nested-table" style="display: none">
                     ${isArray
                             ? this._renderArrayTable(value, true) // true means this is nested
@@ -481,14 +484,14 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
     _toggleExpand(e, expandId) {
         e.stopPropagation();
         const element = this.renderRoot.querySelector(`#${expandId}`);
-        const button = e.target;
+        const previewEl = e.currentTarget.querySelector('.json-preview');
 
         if (element.style.display === 'none') {
             element.style.display = 'block';
-            button.textContent = '-';
+            previewEl.textContent = previewEl.textContent.replace('[+]', '[-]');
         } else {
             element.style.display = 'none';
-            button.textContent = '+';
+            previewEl.textContent = previewEl.textContent.replace('[-]', '[+]');
         }
     }
 
