@@ -353,10 +353,6 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
                             <div class="entity-selector">
                                 ${this._renderEntityTypes()}
                             </div>
-                            ${!this._allowHql ? html`
-                                <vaadin-button theme="small" @click="${this._handleAllowHqlChange}">
-                                    Allow HQL execution from here
-                                </vaadin-button>` : ''}
                         </div>
                     </div>
                     <div class="chat-area" id="chat-area">
@@ -366,7 +362,7 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
                         <div class="chat-input">
                             <vaadin-text-area class="chat-text-area" placeholder="Enter HQL query here..." id="hql-input"
                                               @keydown="${this._handleKeyDown}" style="height: 40px;"></vaadin-text-area>
-                            <vaadin-button theme="contrast" @click="${this._clearInput}">
+                            <vaadin-button theme="contrast" @click="${this._clearChat}">
                                 <vaadin-icon icon="font-awesome-solid:trash"></vaadin-icon>
                             </vaadin-button>
                             <vaadin-button theme="primary" @click="${this._sendQuery}"
@@ -378,12 +374,9 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
             </div>`;
     }
 
-    _clearInput() {
-        const input = this.renderRoot.querySelector('#hql-input');
-        if (input) {
-            input.value = '';
-            input.focus();
-        }
+    _clearChat() {
+        this._messages = [];
+        this._welcomeMessage(this._selectedPersistenceUnit);
     }
 
     _renderMessage(message) {
@@ -397,7 +390,7 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
         } else if (message.type === 'user') {
             return html`
             <div class="message user-message">
-                <div><strong>${message.content}</div>
+                <div>${message.content}</div>
             </div>`;
         } else if (message.type === 'error') {
             return html`
@@ -638,17 +631,35 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
     _selectPersistenceUnit(pu) {
         this._selectedPersistenceUnit = pu;
 
-        // Update entity types when persistence unit changes
-        if (pu) {
-            if (pu.reactive) {
-                this._addSystemMessage("Reactive persistence units are not supported in this console, please use a blocking one.");
-            }
-            else {
-                // Extract entity types from the persistence unit
-                this._entityTypes = pu.managedEntities ? pu.managedEntities.map(entity => entity.name) : [];
-            }
+        if (pu && !pu.reactive) {
+            this._entityTypes = pu.managedEntities ? pu.managedEntities.map(entity => entity.name) : [];
         } else {
             this._entityTypes = [];
+        }
+        this._clearChat();
+    }
+
+    _welcomeMessage(pu) {
+        if ( pu ) {
+            if (pu.reactive) {
+                this._addErrorMessage("Reactive persistence units are not supported in this console, please use a blocking one.");
+            } else {
+                // Add initialization welcome message
+                if (this._allowHql) {
+                    this._addSystemMessage(`Welcome to the HQL Console! Enter your queries below.`);
+                } else {
+                    this._addSystemMessage(html`
+                        Welcome to the HQL Console!
+                        <a href="#" @click="${this._handleAllowHqlChange}"
+                           style="color: var(--lumo-primary-color); text-decoration: underline; font-weight: bold;">
+                            Enable HQL execution
+                        </a>.
+                    `);
+                }
+            }
+        }
+        else {
+            this._addErrorMessage("No persistence unit is available.");
         }
     }
 
@@ -658,7 +669,7 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
             'value': 'true'
         }).then(e => {
             this._allowHql = true;
-            this._addSystemMessage("HQL execution is now enabled. You can start entering queries below.");
+            this._addSystemMessage("HQL execution is now enabled. Enter your queries below.");
         });
     }
 
@@ -680,7 +691,7 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
 
         if (!query) return;
 
-        this._addUserMessage(query);
+        this._addUserMessage(html`<strong>Query: </strong>${query}`);
 
         this._executeHQL(query, 1);
     }
