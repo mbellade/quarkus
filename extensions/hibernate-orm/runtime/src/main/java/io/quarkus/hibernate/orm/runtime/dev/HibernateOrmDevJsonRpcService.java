@@ -6,9 +6,12 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
-import jakarta.enterprise.inject.spi.CDI;
+import jakarta.inject.Inject;
 
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.hibernate.ScrollMode;
@@ -18,10 +21,13 @@ import org.hibernate.engine.jdbc.connections.spi.ConnectionProvider;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.hibernate.query.Query;
 import org.hibernate.query.spi.SqmQuery;
+import org.hibernate.tool.language.internal.MetamodelJsonSerializerImpl;
+import org.hibernate.tool.language.internal.ResultsJsonSerializerImpl;
 import org.jboss.logging.Logger;
 
 import io.agroal.api.AgroalDataSource;
 import io.agroal.api.configuration.AgroalDataSourceConfiguration;
+import io.quarkus.assistant.runtime.dev.Assistant;
 import io.quarkus.devui.runtime.comms.JsonRpcMessage;
 import io.quarkus.devui.runtime.comms.JsonRpcRouter;
 import io.quarkus.devui.runtime.comms.MessageType;
@@ -32,8 +38,11 @@ public class HibernateOrmDevJsonRpcService {
 
     private static final Logger LOG = Logger.getLogger(HibernateOrmDevJsonRpcService.class);
 
-    private boolean isDev;
-    private String allowedHost;
+    private final boolean isDev;
+    private final String allowedHost;
+
+    @Inject
+    Optional<Assistant> assistant;
 
     public HibernateOrmDevJsonRpcService() {
         this.isDev = LaunchMode.current() == LaunchMode.DEVELOPMENT && !LaunchMode.isRemoteDev();
@@ -62,6 +71,18 @@ public class HibernateOrmDevJsonRpcService {
         return getInfo().getPersistenceUnits().stream().filter(pu -> pu.getName().equals(persistenceUnitName)).findFirst();
     }
 
+    private static final String SYSTEM_MESSAGE = """
+            You are an expert in writing Hibernate Query Language (HQL) queries.
+            You have access to a entity model with the following structure:
+
+            {{metamodel}}
+
+            If a user asks a question that can be answered by querying this model, generate an HQL SELECT query.
+            The query must not include any input parameters.
+            Your response should only contain one field called `hql` containing the HQL query, nothing else, no explanation, and do not put the query in backticks.
+            Example response: {"hql": "select e from Entity e where e.property = :value"}
+            """;
+
     /**
      * Execute an arbitrary {@code hql} query in the given {@code persistence unit}. The query might be both a selection or a
      * mutation statement. For selection queries, the result count is retrieved though a count query and the results, paginated
@@ -72,17 +93,19 @@ public class HibernateOrmDevJsonRpcService {
      * further processing by the {@link JsonRpcRouter}.
      *
      * @param persistenceUnit The name of the persistence unit within which the query will be executed
-     * @param hql The Hibernate Query Language (HQL) statement to execute
+     * @param query The user query (be it an HQL query or a plain-text statement when using assistant)
      * @param pageNumber The page number, used for selection query results pagination
      * @param pageSize The page size, used for selection query results pagination
+     * @param assistantEnabled Whether to use the assistant to generate the HQL query based on the user input
      * @return a {@link JsonRpcMessage<String>} containing the resulting {@link DataSet} serialized to JSON.
      */
-    public JsonRpcMessage<Object> executeHQL(String persistenceUnit, String hql, Integer pageNumber, Integer pageSize) {
+    public CompletionStage<JsonRpcMessage<DataSet>> executeHQL(String persistenceUnit, String query, Integer pageNumber,
+            Integer pageSize, Boolean assistantEnabled) {
         if (!isDev) {
             return errorDataSet("This method is only allowed in dev mode");
         }
 
-        if (!hqlIsValid(hql)) {
+        if (!hqlIsValid(query)) {
             return errorDataSet("The provided HQL was not valid");
         }
 
@@ -106,6 +129,38 @@ public class HibernateOrmDevJsonRpcService {
             return errorDataSet("Unsupported Connection Provider type for specified persistence unit.");
         }
 
+        if (Boolean.TRUE.equals(assistantEnabled)) {
+            Assistant a = assistant.isPresent() ? assistant.get() : null;
+            if (a == null || !a.isAvailable()) {
+                return errorDataSet(
+                        "The assistant is not available, please check the Quarkus assistant extension is correctly configured.");
+            }
+
+            final String metamodel = MetamodelJsonSerializerImpl.INSTANCE.toString(sf.getMetamodel());
+
+            CompletionStage<Map<String, String>> assist = a.assistBuilder()
+                    .systemMessage(SYSTEM_MESSAGE)
+                    .userMessage(query)
+                    .addVariable("metamodel", metamodel)
+                    .assist();
+
+            return assist.thenApply(
+                    response -> {
+                        final String hql = response.get("hql");
+                        if (hql == null || hql.isBlank()) {
+                            String errorMessage = "The assistant did not return a valid HQL query.";
+                            new JsonRpcMessage<>(new DataSet(null, null, -1, null, errorMessage), MessageType.Response);
+                        }
+                        return executeHqlQuery(hql, sf, pageNumber, pageSize);
+                    });
+        } else {
+            final JsonRpcMessage<DataSet> result = executeHqlQuery(query, sf, pageNumber, pageSize);
+            return CompletableFuture.completedStage(result);
+        }
+    }
+
+    private static JsonRpcMessage<DataSet> executeHqlQuery(String hql, SessionFactoryImplementor sf, Integer pageNumber,
+            Integer pageSize) {
         return sf.fromSession(session -> {
             Transaction transaction = session.beginTransaction();
             try {
@@ -117,6 +172,7 @@ public class HibernateOrmDevJsonRpcService {
                     return new JsonRpcMessage<>(
                             new DataSet(
                                     null,
+                                    hql,
                                     -1,
                                     "Query executed correctly. Rows affected: " + updateCount,
                                     null),
@@ -137,9 +193,16 @@ public class HibernateOrmDevJsonRpcService {
                         }
 
                         // manually serialize data within the transaction to ensure lazy-loading can function
-                        String result = writeValueAsString(new DataSet(results, resultCount, null, null));
-                        JsonRpcMessage<Object> message = new JsonRpcMessage<>(result, MessageType.Response);
-                        message.setAlreadySerialized(true);
+                        ResultsJsonSerializerImpl serializer = new ResultsJsonSerializerImpl(sf);
+                        String json = serializer.toString(results, query);
+                        JsonRpcMessage<DataSet> message = new JsonRpcMessage<>(
+                                new DataSet(
+                                        json,
+                                        hql,
+                                        resultCount,
+                                        null,
+                                        null),
+                                MessageType.Response);
                         transaction.commit();
                         return message;
                     }
@@ -147,24 +210,14 @@ public class HibernateOrmDevJsonRpcService {
             } catch (Exception ex) {
                 // an error happened, rollback the transaction
                 transaction.rollback();
-                return new JsonRpcMessage<>(new DataSet(null, -1, null, ex.getMessage()), MessageType.Response);
+                return new JsonRpcMessage<>(new DataSet(null, null, -1, null, ex.getMessage()), MessageType.Response);
             }
         });
     }
 
-    private static JsonRpcMessage<Object> errorDataSet(String errorMessage) {
-        return new JsonRpcMessage<>(new DataSet(null, -1, null, errorMessage), MessageType.Response);
-    }
-
-    private static String writeValueAsString(DataSet value) {
-        try {
-            JsonRpcRouter jsonRpcRouter = CDI.current().select(JsonRpcRouter.class).get();
-            return jsonRpcRouter.getJsonMapper().toString(value, true);
-        } catch (Exception ex) {
-            throw new RuntimeException(
-                    "Unable to encode results as JSON. Note circular associations are not supported at the moment, use `@JsonIgnore` to break circles.",
-                    ex);
-        }
+    private static CompletionStage<JsonRpcMessage<DataSet>> errorDataSet(String errorMessage) {
+        return CompletableFuture
+                .completedStage(new JsonRpcMessage<>(new DataSet(null, null, -1, null, errorMessage), MessageType.Response));
     }
 
     private boolean hqlIsValid(String hql) {
@@ -205,6 +258,6 @@ public class HibernateOrmDevJsonRpcService {
         return false;
     }
 
-    private record DataSet(List<Object> data, long totalNumberOfElements, String message, String error) {
+    public record DataSet(String data, String query, long totalNumberOfElements, String message, String error) {
     }
 }

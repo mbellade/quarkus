@@ -181,10 +181,8 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
         }
 
         .expandable-json {
-            cursor: pointer;
             display: flex;
             flex-direction: column;
-            gap: 5px;
         }
 
         .expand-collapse-btn {
@@ -201,21 +199,16 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
             margin-right: 5px;
         }
 
-        .json-preview-container {
-            display: flex;
-            align-items: center;
-            gap: 5px;
+        .json-preview {
+            color: var(--lumo-secondary-text-color);
             cursor: pointer;
             padding: 2px 4px;
             border-radius: var(--lumo-border-radius-s);
+            width: fit-content;
         }
 
-        .json-preview-container:hover {
-            background-color: var(--lumo-contrast-5pct);
-        }
-
-        .json-preview {
-            color: var(--lumo-secondary-text-color);
+        .json-preview:hover {
+            color: var(--lumo-body-text-color);
         }
 
         .table-container table {
@@ -267,6 +260,14 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
             border-bottom: 1px solid var(--lumo-contrast-10pct);
             vertical-align: top;
         }
+
+        .vertical-separator {
+            width: 1px;
+            height: 24px;
+            background-color: var(--lumo-contrast-20pct);
+            margin: 0 8px;
+            align-self: center;
+        }
     `;
 
     static properties = {
@@ -277,6 +278,8 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
         _currentPageNumber: {state: true},
         _currentNumberOfPages: {state: true},
         _allowHql: {state: true},
+        _isAssistantPage: {state: true},
+        _assistantEnabled: {state: true},
         _loading: {state: true, type: Boolean}
     }
 
@@ -291,6 +294,8 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
         this._pageSize = 15;
         this._loading = false;
         this._allowHql = false;
+        this._isAssistantPage = false;
+        this._assistantEnabled = false;
     }
 
     connectedCallback() {
@@ -299,8 +304,10 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
         const page = this.routerController.getCurrentPage();
         if (page && page.metadata) {
             this._allowHql = (page.metadata.allowHql === "true");
+            this._isAssistantPage = (page.metadata.isAssistantPage === "true");
         } else {
             this._allowHql = false;
+            this._isAssistantPage = false;
         }
 
         this.hotReload();
@@ -360,8 +367,18 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
                     </div>
                     ${this._allowHql ? html`
                         <div class="chat-input">
-                            <vaadin-text-area class="chat-text-area" placeholder="Enter HQL query here..." id="hql-input"
-                                              @keydown="${this._handleKeyDown}" style="height: 40px;"></vaadin-text-area>
+                            <vaadin-text-area class="chat-text-area" placeholder="Enter HQL query here..."
+                                              id="hql-input"
+                                              @keydown="${this._handleKeyDown}"
+                                              style="height: 40px;"></vaadin-text-area>
+                            ${this._isAssistantPage ? html`
+                                <vaadin-button theme="secondary" @click="${this._toggleAssistant}"
+                                               style="color: ${this._assistantEnabled ? 'var(--quarkus-assistant)' : 'var(--lumo-secondary-text-color)'}">
+                                    <vaadin-icon icon="font-awesome-solid:robot" slot="prefix"></vaadin-icon>
+                                    ${this._assistantEnabled ? 'Assistant enabled' : 'Assistant disabled'}
+                                </vaadin-button>
+                            ` : ''}
+                            <div class="vertical-separator"></div>
                             <vaadin-button theme="contrast" @click="${this._clearChat}">
                                 <vaadin-icon icon="font-awesome-solid:trash"></vaadin-icon>
                             </vaadin-button>
@@ -377,6 +394,10 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
     _clearChat() {
         this._messages = [];
         this._welcomeMessage(this._selectedPersistenceUnit);
+    }
+
+    _toggleAssistant() {
+        this._assistantEnabled = !this._assistantEnabled;
     }
 
     _renderMessage(message) {
@@ -462,9 +483,7 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
 
         return html`
             <div class="expandable-json">
-                <div class="json-preview-container" @click="${(e) => this._toggleExpand(e, expandId)}">
-                    <span class="json-preview">[+] ${preview}</span>
-                </div>
+                <span class="json-preview" @click="${(e) => this._toggleExpand(e, expandId)}">[+] ${preview}</span>
                 <div id="${expandId}" class="nested-table" style="display: none">
                     ${isArray
                             ? this._renderArrayTable(value, true) // true means this is nested
@@ -691,26 +710,27 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
 
         if (!query) return;
 
-        this._addUserMessage(html`<strong>Query: </strong>${query}`);
+        this._addUserMessage(html`<strong>${this._assistantEnabled ? 'Message' : 'Query'}: </strong>${query}`);
 
         this._executeHQL(query, 1);
     }
 
-    _executeHQL(hql, pageNumber) {
-        if (!hql || !this._selectedPersistenceUnit) return;
+    _executeHQL(query, pageNumber) {
+        if (!query || !this._selectedPersistenceUnit) return;
 
         // Create a loading message instead of setting global loading state
         const loadingMessageIndex = this._messages.length;
         this._messages = [...this._messages, {
             type: 'loading',
-            query: hql
+            query: query
         }];
 
         this.jsonRpc.executeHQL({
             persistenceUnit: this._selectedPersistenceUnit.name,
-            hql: hql,
+            query: query,
             pageNumber: pageNumber,
-            pageSize: this._pageSize
+            pageSize: this._pageSize,
+            assistantEnabled: this._assistantEnabled
         }).then(jsonRpcResponse => {
             // Clone the messages array to modify it
             const updatedMessages = [...this._messages];
@@ -730,7 +750,7 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
                     type: 'result',
                     message: jsonRpcResponse.result.message,
                     data: null,
-                    query: hql,
+                    query: jsonRpcResponse.result.query,
                     page: pageNumber,
                     totalPages: 1
                 };
@@ -742,8 +762,8 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
                 updatedMessages[loadingMessageIndex] = {
                     type: 'result',
                     message: null,
-                    data: result.data,
-                    query: hql,
+                    data: JSON.parse(result.data),
+                    query: result.query,
                     page: pageNumber,
                     totalPages: totalPages
                 };

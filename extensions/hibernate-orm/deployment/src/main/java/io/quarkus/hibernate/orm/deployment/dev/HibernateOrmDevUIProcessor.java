@@ -5,6 +5,8 @@ import java.util.List;
 import io.quarkus.agroal.spi.JdbcInitialSQLGeneratorBuildItem;
 import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
 import io.quarkus.arc.processor.DotNames;
+import io.quarkus.deployment.Capabilities;
+import io.quarkus.deployment.Capability;
 import io.quarkus.deployment.IsDevelopment;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
@@ -12,6 +14,7 @@ import io.quarkus.deployment.annotations.BuildSteps;
 import io.quarkus.devui.spi.JsonRPCProvidersBuildItem;
 import io.quarkus.devui.spi.page.CardPageBuildItem;
 import io.quarkus.devui.spi.page.Page;
+import io.quarkus.devui.spi.page.WebComponentPageBuilder;
 import io.quarkus.hibernate.orm.deployment.HibernateOrmConfig;
 import io.quarkus.hibernate.orm.deployment.HibernateOrmEnabled;
 import io.quarkus.hibernate.orm.deployment.PersistenceUnitDescriptorBuildItem;
@@ -23,7 +26,7 @@ import io.quarkus.hibernate.orm.runtime.dev.HibernateOrmDevJsonRpcService;
 public class HibernateOrmDevUIProcessor {
 
     @BuildStep
-    public CardPageBuildItem create(HibernateOrmConfig config) {
+    public CardPageBuildItem create(HibernateOrmConfig config, Capabilities capabilities) {
         CardPageBuildItem card = new CardPageBuildItem();
         card.setLogo("hibernate_icon_dark.svg", "hibernate_icon_light.svg");
         card.addLibraryVersion("org.hibernate.orm", "hibernate-core", "Hibernate", "https://hibernate.org/orm/");
@@ -45,11 +48,15 @@ public class HibernateOrmDevUIProcessor {
                 .componentLink("hibernate-orm-named-queries.js")
                 .icon("font-awesome-solid:circle-question")
                 .dynamicLabelJsonRPCMethodName("getNumberOfNamedQueries"));
-        card.addPage(Page.webComponentPageBuilder()
+        final boolean assistantIsAvailable = capabilities.isPresent(Capability.ASSISTANT);
+        WebComponentPageBuilder consolePageBuilder = assistantIsAvailable ? Page.assistantPageBuilder()
+                : Page.webComponentPageBuilder();
+        card.addPage(consolePageBuilder
                 .title("HQL Console")
                 .componentLink("hibernate-orm-hql-console.js")
                 .icon("font-awesome-solid:play")
                 .metadata("allowHql", String.valueOf(config.devui().allowHql())));
+
         return card;
     }
 
