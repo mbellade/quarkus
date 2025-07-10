@@ -30,7 +30,6 @@ import io.agroal.api.configuration.AgroalDataSourceConfiguration;
 import io.quarkus.assistant.runtime.dev.Assistant;
 import io.quarkus.devui.runtime.comms.JsonRpcMessage;
 import io.quarkus.devui.runtime.comms.JsonRpcRouter;
-import io.quarkus.devui.runtime.comms.MessageType;
 import io.quarkus.hibernate.orm.runtime.customized.QuarkusConnectionProvider;
 import io.quarkus.runtime.LaunchMode;
 
@@ -99,8 +98,8 @@ public class HibernateOrmDevJsonRpcService {
      * @param assistantEnabled Whether to use the assistant to generate the HQL query based on the user input
      * @return a {@link JsonRpcMessage<String>} containing the resulting {@link DataSet} serialized to JSON.
      */
-    public CompletionStage<JsonRpcMessage<DataSet>> executeHQL(String persistenceUnit, String query, Integer pageNumber,
-            Integer pageSize, Boolean assistantEnabled) {
+    public CompletionStage<DataSet> executeHQL(String persistenceUnit, String query, Integer pageNumber, Integer pageSize,
+            Boolean assistantEnabled) {
         if (!isDev) {
             return errorDataSet("This method is only allowed in dev mode");
         }
@@ -114,7 +113,6 @@ public class HibernateOrmDevJsonRpcService {
             return errorDataSet("No such persistence unit: " + persistenceUnit);
         }
 
-        //noinspection resource
         SessionFactoryImplementor sf = pu.get().sessionFactory();
 
         // Check the connection for this persistence unit points to an allowed datasource
@@ -130,7 +128,7 @@ public class HibernateOrmDevJsonRpcService {
         }
 
         if (Boolean.TRUE.equals(assistantEnabled)) {
-            Assistant a = assistant.isPresent() ? assistant.get() : null;
+            Assistant a = assistant.orElse(null);
             if (a == null || !a.isAvailable()) {
                 return errorDataSet(
                         "The assistant is not available, please check the Quarkus assistant extension is correctly configured.");
@@ -144,23 +142,24 @@ public class HibernateOrmDevJsonRpcService {
                     .addVariable("metamodel", metamodel)
                     .assist();
 
-            return assist.thenApply(
-                    response -> {
-                        final String hql = response.get("hql");
-                        if (hql == null || hql.isBlank()) {
-                            String errorMessage = "The assistant did not return a valid HQL query.";
-                            new JsonRpcMessage<>(new DataSet(null, null, -1, null, errorMessage), MessageType.Response);
-                        }
-                        return executeHqlQuery(hql, sf, pageNumber, pageSize);
-                    });
+            return assist.handle((response, ex) -> {
+                if (ex != null) {
+                    LOG.error("Error while generating HQL query using the assistant", ex);
+                    return new DataSet(null, null, -1, null, "The Quarkus assistant encountered an error: " + ex.getMessage());
+                }
+                final String hql = response.get("hql");
+                if (hql == null || hql.isBlank()) {
+                    return new DataSet(null, null, -1, null, "The assistant did not return a valid HQL query.");
+                }
+                return executeHqlQuery(hql, sf, pageNumber, pageSize);
+            });
         } else {
-            final JsonRpcMessage<DataSet> result = executeHqlQuery(query, sf, pageNumber, pageSize);
+            final DataSet result = executeHqlQuery(query, sf, pageNumber, pageSize);
             return CompletableFuture.completedStage(result);
         }
     }
 
-    private static JsonRpcMessage<DataSet> executeHqlQuery(String hql, SessionFactoryImplementor sf, Integer pageNumber,
-            Integer pageSize) {
+    private static DataSet executeHqlQuery(String hql, SessionFactoryImplementor sf, Integer pageNumber, Integer pageSize) {
         return sf.fromSession(session -> {
             Transaction transaction = session.beginTransaction();
             try {
@@ -169,14 +168,12 @@ public class HibernateOrmDevJsonRpcService {
                     // DML query, execute update within transaction and return custom message with affected rows
                     int updateCount = query.executeUpdate();
                     transaction.commit();
-                    return new JsonRpcMessage<>(
-                            new DataSet(
-                                    null,
-                                    hql,
-                                    -1,
-                                    "Query executed correctly. Rows affected: " + updateCount,
-                                    null),
-                            MessageType.Response);
+                    return new DataSet(
+                            null,
+                            hql,
+                            -1,
+                            "Query executed correctly. Rows affected: " + updateCount,
+                            null);
                 } else {
                     // selection query, execute count query and return paged results
 
@@ -195,29 +192,27 @@ public class HibernateOrmDevJsonRpcService {
                         // manually serialize data within the transaction to ensure lazy-loading can function
                         ResultsJsonSerializerImpl serializer = new ResultsJsonSerializerImpl(sf);
                         String json = serializer.toString(results, query);
-                        JsonRpcMessage<DataSet> message = new JsonRpcMessage<>(
-                                new DataSet(
-                                        json,
-                                        hql,
-                                        resultCount,
-                                        null,
-                                        null),
-                                MessageType.Response);
+                        DataSet ds = new DataSet(
+                                json,
+                                hql,
+                                resultCount,
+                                null,
+                                null);
                         transaction.commit();
-                        return message;
+                        return ds;
                     }
                 }
             } catch (Exception ex) {
+                LOG.error("Error executing HQL query", ex);
                 // an error happened, rollback the transaction
                 transaction.rollback();
-                return new JsonRpcMessage<>(new DataSet(null, null, -1, null, ex.getMessage()), MessageType.Response);
+                return new DataSet(null, null, -1, null, ex.getMessage());
             }
         });
     }
 
-    private static CompletionStage<JsonRpcMessage<DataSet>> errorDataSet(String errorMessage) {
-        return CompletableFuture
-                .completedStage(new JsonRpcMessage<>(new DataSet(null, null, -1, null, errorMessage), MessageType.Response));
+    private static CompletionStage<DataSet> errorDataSet(String errorMessage) {
+        return CompletableFuture.completedStage(new DataSet(null, null, -1, null, errorMessage));
     }
 
     private boolean hqlIsValid(String hql) {
