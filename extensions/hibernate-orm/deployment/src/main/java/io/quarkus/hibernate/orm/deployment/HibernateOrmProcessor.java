@@ -12,22 +12,8 @@ import static io.quarkus.hibernate.orm.deployment.util.HibernateProcessorUtil.xm
 
 import java.io.IOException;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Enumeration;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 import java.util.Map.Entry;
-import java.util.Optional;
-import java.util.Properties;
-import java.util.Set;
-import java.util.TreeSet;
 import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
@@ -362,19 +348,20 @@ public final class HibernateOrmProcessor {
             CombinedIndexBuildItem index,
             List<AdditionalJpaModelBuildItem> additionalJpaModelBuildItems,
             List<io.quarkus.hibernate.orm.deployment.AdditionalJpaModelBuildItem> deprecatedAdditionalJpaModelBuildItems) {
-        Set<String> additionalClassNames = new HashSet<>();
+        Map<String, byte[]> additionalClasses = new HashMap<>(
+                additionalJpaModelBuildItems.size() + deprecatedAdditionalJpaModelBuildItems.size());
         for (AdditionalJpaModelBuildItem jpaModel : additionalJpaModelBuildItems) {
-            additionalClassNames.add(jpaModel.getClassName());
+            additionalClasses.put(jpaModel.getClassName(), jpaModel.getClassBytes());
         }
         for (io.quarkus.hibernate.orm.deployment.AdditionalJpaModelBuildItem jpaModel : deprecatedAdditionalJpaModelBuildItems) {
-            additionalClassNames.add(jpaModel.getClassName());
+            additionalClasses.put(jpaModel.getClassName(), null);
         }
         // build a composite index with additional jpa model classes
         Indexer indexer = new Indexer();
         Set<DotName> additionalIndex = new HashSet<>();
-        for (String className : additionalClassNames) {
-            IndexingUtil.indexClass(className, indexer, index.getIndex(), additionalIndex,
-                    HibernateOrmProcessor.class.getClassLoader());
+        for (Entry<String, byte[]> entry : additionalClasses.entrySet()) {
+            IndexingUtil.indexClass(entry.getKey(), indexer, index.getIndex(), additionalIndex,
+                    new HashSet<>(), HibernateOrmProcessor.class.getClassLoader(), entry.getValue());
         }
         CompositeIndex compositeIndex = CompositeIndex.create(index.getComputingIndex(), indexer.complete());
         return new JpaModelIndexBuildItem(compositeIndex);
@@ -1061,7 +1048,7 @@ public final class HibernateOrmProcessor {
             BuildProducer<BytecodeTransformerBuildItem> transformers,
             List<AdditionalJpaModelBuildItem> additionalJpaModelBuildItems,
             List<io.quarkus.hibernate.orm.deployment.AdditionalJpaModelBuildItem> deprecatedAdditionalJpaModelBuildItems,
-            BuildProducer<GeneratedClassBuildItem> additionalClasses) {
+            BuildProducer<GeneratedClassBuildItem> generatedClassBuildItemBuildProducer) {
         HibernateEntityEnhancer hibernateEntityEnhancer = new HibernateEntityEnhancer();
         for (String i : jpaModel.getManagedClassNames()) {
 
@@ -1070,18 +1057,21 @@ public final class HibernateOrmProcessor {
                     .setVisitorFunction(hibernateEntityEnhancer)
                     .setCacheable(true).build());
         }
-        Set<String> additionalClassNames = new HashSet<>();
+        Map<String, byte[]> additionalClasses = new HashMap<>();
         for (AdditionalJpaModelBuildItem additionalJpaModel : additionalJpaModelBuildItems) {
-            additionalClassNames.add(additionalJpaModel.getClassName());
+            additionalClasses.put(additionalJpaModel.getClassName(), additionalJpaModel.getClassBytes());
         }
         for (io.quarkus.hibernate.orm.deployment.AdditionalJpaModelBuildItem additionalJpaModel : deprecatedAdditionalJpaModelBuildItems) {
-            additionalClassNames.add(additionalJpaModel.getClassName());
+            additionalClasses.put(additionalJpaModel.getClassName(), null);
         }
-        for (String className : additionalClassNames) {
+        for (Entry<String, byte[]> entry : additionalClasses.entrySet()) {
+            String className = entry.getKey();
             try {
-                byte[] bytes = IoUtil.readClassAsBytes(HibernateOrmProcessor.class.getClassLoader(), className);
+                byte[] bytes = IoUtil.readBytes(
+                        IndexingUtil.getClassStream(HibernateOrmProcessor.class.getClassLoader(), className, entry.getValue()));
                 byte[] enhanced = hibernateEntityEnhancer.enhance(className, bytes);
-                additionalClasses.produce(new GeneratedClassBuildItem(false, className, enhanced != null ? enhanced : bytes));
+                generatedClassBuildItemBuildProducer
+                        .produce(new GeneratedClassBuildItem(false, className, enhanced != null ? enhanced : bytes));
             } catch (IOException e) {
                 throw new RuntimeException("Failed to read Model class", e);
             }

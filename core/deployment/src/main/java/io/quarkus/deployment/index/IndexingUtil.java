@@ -23,8 +23,6 @@ import org.jboss.jandex.Indexer;
 import org.jboss.jandex.UnsupportedVersion;
 import org.jboss.logging.Logger;
 
-import io.quarkus.bootstrap.classloading.QuarkusClassLoader;
-import io.quarkus.deployment.builditem.GeneratedClassBuildItem;
 import io.quarkus.deployment.util.IoUtil;
 import io.quarkus.paths.OpenPathTree;
 import io.quarkus.paths.PathVisit;
@@ -149,27 +147,6 @@ public class IndexingUtil {
 
     public static void indexClass(String className, Indexer indexer, IndexView quarkusIndex,
             Set<DotName> additionalIndex, Set<DotName> knownMissingClasses, ClassLoader classLoader) {
-        indexClass(className, indexer, quarkusIndex, additionalIndex, knownMissingClasses, classLoader,
-                Collections.emptyList());
-    }
-
-    private static InputStream getClassStream(ClassLoader classLoader, String className,
-            List<GeneratedClassBuildItem> generatedClasses) {
-        if (!QuarkusClassLoader.isApplicationClass(className)) {
-            // If the class is not an application class, check generated classes
-            GeneratedClassBuildItem generatedClass = generatedClasses.stream()
-                    .filter(g -> g.binaryName().equals(className))
-                    .findFirst().orElse(null);
-            if (generatedClass != null) {
-                return new ByteArrayInputStream(generatedClass.getClassData());
-            }
-        }
-        return IoUtil.readClass(classLoader, className);
-    }
-
-    public static void indexClass(String className, Indexer indexer, IndexView quarkusIndex,
-            Set<DotName> additionalIndex, Set<DotName> knownMissingClasses, ClassLoader classLoader,
-            List<GeneratedClassBuildItem> generatedClasses) {
         DotName classDotName = DotName.createSimple(className);
         if (additionalIndex.contains(classDotName)) {
             return;
@@ -181,7 +158,7 @@ public class IndexingUtil {
         ClassInfo classInfo = quarkusIndex.getClassByName(classDotName);
         if (classInfo == null) {
             log.debugf("Index class: %s", className);
-            try (InputStream stream = getClassStream(classLoader, className, generatedClasses)) {
+            try (InputStream stream = IoUtil.readClass(classLoader, className)) {
                 if (stream == null) {
                     throw new IllegalStateException(
                             "Failed to index: " + className + ", class not present in class loader: " + classLoader);
@@ -221,6 +198,13 @@ public class IndexingUtil {
         }
     }
 
+    public static InputStream getClassStream(ClassLoader classLoader, String className, byte[] beanData) {
+        if (beanData != null) {
+            return new ByteArrayInputStream(beanData);
+        }
+        return IoUtil.readClass(classLoader, className);
+    }
+
     public static void indexClass(String className, Indexer indexer,
             IndexView quarkusIndex, Set<DotName> additionalIndex, ClassLoader classLoader, byte[] beanData) {
         indexClass(className, indexer, quarkusIndex, additionalIndex, new HashSet<>(), classLoader, beanData);
@@ -239,7 +223,11 @@ public class IndexingUtil {
         ClassInfo classInfo = quarkusIndex.getClassByName(classDotName);
         if (classInfo == null) {
             log.debugf("Index class: %s", className);
-            try (InputStream stream = new ByteArrayInputStream(beanData)) {
+            try (InputStream stream = getClassStream(classLoader, className, beanData)) {
+                if (stream == null) {
+                    throw new IllegalStateException(
+                            "Failed to index: " + className + ", class not present in class loader: " + classLoader);
+                }
                 ClassSummary summary = indexer.indexWithSummary(stream);
                 additionalIndex.add(summary.name());
                 annotationNames = summary.annotations();
