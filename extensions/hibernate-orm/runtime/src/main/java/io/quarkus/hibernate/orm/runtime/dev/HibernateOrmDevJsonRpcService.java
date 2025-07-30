@@ -30,6 +30,7 @@ import io.agroal.api.configuration.AgroalDataSourceConfiguration;
 import io.quarkus.assistant.runtime.dev.Assistant;
 import io.quarkus.devui.runtime.comms.JsonRpcMessage;
 import io.quarkus.devui.runtime.comms.JsonRpcRouter;
+import io.quarkus.devui.runtime.comms.MessageType;
 import io.quarkus.hibernate.orm.runtime.customized.QuarkusConnectionProvider;
 import io.quarkus.runtime.LaunchMode;
 
@@ -112,8 +113,13 @@ public class HibernateOrmDevJsonRpcService {
      * @param interactive Enable assistant's interactive mode, answering the original user request in natural language
      * @return a {@link JsonRpcMessage<String>} containing the resulting {@link DataSet} serialized to JSON.
      */
-    public CompletionStage<DataSet> executeHQL(String persistenceUnit, String query, Integer pageNumber, Integer pageSize,
-            Boolean assistant, Boolean interactive) {
+    public CompletionStage<JsonRpcMessage<String>> executeHQL(
+            String persistenceUnit,
+            String query,
+            Integer pageNumber,
+            Integer pageSize,
+            Boolean assistant,
+            Boolean interactive) {
         if (!isDev) {
             return errorDataSet("This method is only allowed in dev mode");
         }
@@ -176,15 +182,15 @@ public class HibernateOrmDevJsonRpcService {
                             .assist();
                     return interactiveCompletionStage.thenApply(response -> {
                         final String answer = response.get("answer");
-                        return new DataSet(null, dataSet.query(), dataSet.totalNumberOfElements(), answer, null);
+                        return messageDataset(dataSet.query(), answer, dataSet.resultCount());
                     });
                 });
             } else {
-                return dataSetCompletionStage;
+                return dataSetCompletionStage.thenApply(HibernateOrmDevJsonRpcService::toJson);
             }
         } else {
             final DataSet result = executeHqlQuery(query, sf, pageNumber, pageSize);
-            return CompletableFuture.completedStage(result);
+            return CompletableFuture.completedStage(toJson(result));
         }
     }
 
@@ -247,8 +253,29 @@ public class HibernateOrmDevJsonRpcService {
         });
     }
 
-    private static CompletionStage<DataSet> errorDataSet(String errorMessage) {
-        return CompletableFuture.completedStage(new DataSet(null, null, -1, null, errorMessage));
+    private static CompletionStage<JsonRpcMessage<String>> errorDataSet(String errorMessage) {
+        return CompletableFuture.completedStage(toJson(new DataSet(null, null, -1, null, errorMessage)));
+    }
+
+    private static JsonRpcMessage<String> messageDataset(String query, String message, long resultCount) {
+        return toJson(new DataSet(null, query, resultCount, message, null));
+    }
+
+    private static JsonRpcMessage<String> toJson(DataSet dataSet) {
+        String json = "{" +
+                "\"data\":" + dataSet.data() + "," +
+                "\"resultCount\":" + dataSet.resultCount() + "," +
+                toJsonString("query", dataSet.query()) +
+                toJsonString("message", dataSet.message()) +
+                toJsonString("error", dataSet.error());
+        json = json.substring(0, json.length() - 1) + "}";
+        JsonRpcMessage<String> message = new JsonRpcMessage<>(json, MessageType.Response);
+        message.setAlreadySerialized(true);
+        return message;
+    }
+
+    private static String toJsonString(String fieldName, String value) {
+        return value != null ? "\"" + fieldName + "\":\"" + value + "\"," : "";
     }
 
     private boolean hqlIsValid(String hql) {
@@ -289,6 +316,6 @@ public class HibernateOrmDevJsonRpcService {
         return false;
     }
 
-    public record DataSet(String data, String query, long totalNumberOfElements, String message, String error) {
+    public record DataSet(String data, String query, long resultCount, String message, String error) {
     }
 }

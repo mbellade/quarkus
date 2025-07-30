@@ -798,9 +798,9 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
                     data: result.data && JSON.parse(result.data),
                     query: result.query,
                     page: pageNumber,
-                    results: result.totalNumberOfElements,
+                    results: result.resultCount,
                     assistant: assistant,
-                    totalPages: result.message ? 1 : Math.ceil(result.totalNumberOfElements / this._pageSize) || 1
+                    totalPages: result.message ? 1 : Math.ceil(result.resultCount / this._pageSize) || 1
                 };
             }
 
