@@ -1,5 +1,6 @@
 package io.quarkus.hibernate.orm.runtime.dev;
 
+import static org.hibernate.internal.util.StringHelper.isBlank;
 import static org.hibernate.query.sqm.internal.SqmUtil.isMutation;
 
 import java.net.URI;
@@ -154,7 +155,7 @@ public class HibernateOrmDevJsonRpcService {
                         "The assistant is not available, please check the Quarkus assistant extension is correctly configured.");
             }
 
-            final String metamodel = MetamodelJsonSerializerImpl.INSTANCE.toString(sf.getMetamodel());
+            String metamodel = MetamodelJsonSerializerImpl.INSTANCE.toString(sf.getMetamodel());
 
             CompletionStage<Map<String, String>> queryCompletionStage = a.assistBuilder()
                     .systemMessage(SYSTEM_MESSAGE)
@@ -163,7 +164,7 @@ public class HibernateOrmDevJsonRpcService {
                     .assist();
 
             CompletionStage<DataSet> dataSetCompletionStage = queryCompletionStage.thenApply(response -> {
-                final String hql = response.get("hql");
+                String hql = response.get("hql");
                 if (hql == null || hql.isBlank()) {
                     return new DataSet(null, null, -1, null, "The assistant did not return a valid HQL query.");
                 }
@@ -172,6 +173,10 @@ public class HibernateOrmDevJsonRpcService {
 
             if (Boolean.TRUE.equals(interactive)) {
                 return dataSetCompletionStage.thenCompose(dataSet -> {
+                    if (dataSet.error() != null) {
+                        // If there was an error executing the query, return it directly
+                        return CompletableFuture.completedStage(toJson(dataSet));
+                    }
                     CompletionStage<Map<String, String>> interactiveCompletionStage = a.assistBuilder()
                             .systemMessage(SYSTEM_MESSAGE)
                             .addVariable("metamodel", metamodel)
@@ -181,7 +186,7 @@ public class HibernateOrmDevJsonRpcService {
                             .addVariable("user_request", query)
                             .assist();
                     return interactiveCompletionStage.thenApply(response -> {
-                        final String answer = response.get("answer");
+                        String answer = response.get("answer");
                         return messageDataset(dataSet.query(), answer, dataSet.resultCount());
                     });
                 });
@@ -189,7 +194,7 @@ public class HibernateOrmDevJsonRpcService {
                 return dataSetCompletionStage.thenApply(HibernateOrmDevJsonRpcService::toJson);
             }
         } else {
-            final DataSet result = executeHqlQuery(query, sf, pageNumber, pageSize);
+            DataSet result = executeHqlQuery(query, sf, pageNumber, pageSize);
             return CompletableFuture.completedStage(toJson(result));
         }
     }
@@ -211,8 +216,8 @@ public class HibernateOrmDevJsonRpcService {
                             null);
                 } else {
                     // selection query, execute count query and return paged results
-                    final List<Object> results;
-                    final long resultCount;
+                    List<Object> results;
+                    long resultCount;
                     if (pageNumber != null && pageSize != null) {
                         // This executes a separate count query
                         resultCount = query.getResultCount();
@@ -262,20 +267,24 @@ public class HibernateOrmDevJsonRpcService {
     }
 
     private static JsonRpcMessage<String> toJson(DataSet dataSet) {
-        String json = "{" +
-                "\"data\":" + dataSet.data() + "," +
-                "\"resultCount\":" + dataSet.resultCount() + "," +
-                toJsonString("query", dataSet.query()) +
-                toJsonString("message", dataSet.message()) +
-                toJsonString("error", dataSet.error());
-        json = json.substring(0, json.length() - 1) + "}";
-        JsonRpcMessage<String> message = new JsonRpcMessage<>(json, MessageType.Response);
+        StringBuilder jsonBuilder = new StringBuilder("{");
+        jsonBuilder.append("\"resultCount\":").append(dataSet.resultCount());
+        if (dataSet.data() != null) {
+            jsonBuilder.append(",\"data\":").append(dataSet.data());
+        }
+        appendIfNonNull(jsonBuilder, "query", dataSet.query());
+        appendIfNonNull(jsonBuilder, "message", dataSet.message());
+        appendIfNonNull(jsonBuilder, "error", dataSet.error());
+        jsonBuilder.append("}");
+        JsonRpcMessage<String> message = new JsonRpcMessage<>(jsonBuilder.toString(), MessageType.Response);
         message.setAlreadySerialized(true);
         return message;
     }
 
-    private static String toJsonString(String fieldName, String value) {
-        return value != null ? "\"" + fieldName + "\":\"" + value + "\"," : "";
+    private static void appendIfNonNull(StringBuilder sb, String fieldName, String value) {
+        if (value != null) {
+            sb.append(",\"").append(fieldName).append("\":\"").append(value).append("\"");
+        }
     }
 
     private boolean hqlIsValid(String hql) {
@@ -283,7 +292,7 @@ public class HibernateOrmDevJsonRpcService {
     }
 
     private boolean isAllowedDatabase(AgroalDataSource ads) {
-        final String allowedHost = this.allowedHost == null ? null : this.allowedHost.trim();
+        String allowedHost = this.allowedHost == null ? null : this.allowedHost.trim();
         if (allowedHost != null && allowedHost.equals("*")) {
             // special value indicating to allow any host
             return true;

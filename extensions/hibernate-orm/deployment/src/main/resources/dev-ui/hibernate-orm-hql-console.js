@@ -10,10 +10,11 @@ import '@vaadin/progress-bar';
 import '@vaadin/tabs';
 import '@vaadin/tabsheet';
 import {notifier} from 'notifier';
-import { assistantState } from 'assistant-state';
+import {assistantState} from 'assistant-state';
 import 'qui-assistant-warning';
+import {observeState} from 'lit-element-state';
 
-export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
+export class HibernateOrmHqlConsoleComponent extends observeState(QwcHotReloadElement) {
     jsonRpc = new JsonRpc(this);
     configJsonRpc = new JsonRpc("devui-configuration");
 
@@ -492,19 +493,6 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
         });
     }
 
-    _renderExpandableData(message) {
-        const expandId = `expand-${++this._expandCounter}`;
-        return html`
-            <div class="expandable-json" style="margin-top: 10px;">
-                <span class="json-preview"
-                      @click="${(e) => this._toggleExpand(e, expandId)}">[+] Array[${message.data.length}]</span>
-                <div id="${expandId}" style="display: none">
-                    ${this._renderResultsWithPagination(message)}
-                </div>
-            </div>
-        `;
-    }
-
     _renderResultsData(data) {
         if (!data || data.length === 0) {
             return html`<div>No results found.</div>`;
@@ -795,12 +783,12 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
                 updatedMessages[loadingMessageIndex] = {
                     type: 'result',
                     message: result.message,
-                    data: result.data && JSON.parse(result.data),
+                    data: result.data,
                     query: result.query,
                     page: pageNumber,
                     results: result.resultCount,
                     assistant: assistant,
-                    totalPages: result.message ? 1 : Math.ceil(result.resultCount / this._pageSize) || 1
+                    totalPages: Math.ceil(result.resultCount / this._pageSize) || 1
                 };
             }
 
@@ -811,7 +799,7 @@ export class HibernateOrmHqlConsoleComponent extends QwcHotReloadElement {
             const updatedMessages = [...this._messages];
             updatedMessages[loadingMessageIndex] = {
                 type: 'error',
-                content: "Failed to execute query: " + error
+                content: error.error || "Failed to execute query."
             };
             this._messages = updatedMessages;
         });
