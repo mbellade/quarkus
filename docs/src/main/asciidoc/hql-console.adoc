@@ -1,0 +1,70 @@
+= Conversing with Your Database: The New AI-Powered HQL Console in Quarkus
+:author: Your Name
+:email: your.email@example.com
+:revdate: {docdate}
+:sectanchors:
+:imagesdir: /assets/images/blog/2024-hql-console
+
+The HQL (Hibernate Query Language) console is a new feature of the Hibernate ORM extension recently added to Quarkus' Dev UI. It offers developers an intuitive visual interface to quickly prototype Hibernate queries, allowing you to execute arbitrary HQL statements using any of the configured Persistence Units, with their mapping metamodel and underlying datasources.
+
+Results are displayed in a tabular format, with support for sorting and pagination:
+
+// todo add screenshot with simple query and results
+// image::hql-console.png[The new HQL Console in Quarkus Dev UI]
+
+Hibernate ORM's deep knowledge of your entity model and its intricacies allows the Dev UI to provide a powerful and safe data interaction experience: any problems with your queries, like incorrect syntax or misspelled properties, are detected before hitting the database thanks to Hibernate's early query validation; query results containing complex associations, with lazy loading and recursive relationships, are handled gracefully, allowing you to explore your data without running into common pitfalls.
+
+== From HQL to Natural Language
+
+// todo : make Quarkus Dev Assistant a link to the documentation
+The HQL console also seamlessly integrates with the recently introduced [Quarkus Dev Assistant], which allows leveraging the power of Large Language Models (LLMs) directly within your data interaction development workflow, making the console more than just a powerful prototyping tool but also an intelligent data companion.
+
+Writing HQL queries is powerful, but it requires knowledge of the query language and the specifics of the entity model. What if you could just *ask* for the data you need in plain English?
+
+With the new AI-assisted mode, you can. Simply enable the "Assistant" toggle in the console, and you can type requests like:
+
+[source,text]
+----
+"Find all products that are out of stock"
+----
+
+The Dev Assistant, powered by your configured LLM provider (like OpenAI or a local Ollama model), will analyze your request. To ensure the generated query is accurate, the console automatically provides the assistant with a JSON representation of your Hibernate ORM metamodel. This gives the AI the necessary context about your entities, their properties, and relationships.
+
+The assistant then generates the corresponding HQL query and executes it for you.
+
+image::hql-console-assistant.png[The new HQL Console with the Assistant enabled]
+
+== Interactive Mode: AI-Powered Data Analysis
+
+Query generation is just the beginning. The new console also features an "Interactive" mode that takes the AI integration a step further.
+
+When you ask a question in interactive mode, the console follows a three-step process:
+1.  Your natural language request is sent to the assistant to generate an HQL query.
+2.  The generated query is executed against your database.
+3.  The results, reliably serialized to JSON using a new component from Hibernate Tools, are sent *back* to the assistant along with your original question.
+
+The assistant then interprets the data in the context of your request and provides a natural language summary. This allows for a conversational-style exploration of your data, providing insights without you ever having to look at a single row or JSON object.
+
+For example, asking `"How many books do I have per author?"` might yield a response like:
+
+[source,text]
+----
+You have 5 books by 'George Orwell', 3 by 'J.R.R. Tolkien', and 1 by 'Frank Herbert'.
+----
+
+This is all done while still giving you access to the underlying HQL query and the raw data, giving you the best of both worlds.
+
+== Under the Hood
+
+This new experience is made possible by a tight integration between several key technologies:
+*   **Quarkus Dev UI:** The extensible platform for developer tools.
+*   **Quarkus Dev Assistant:** The core framework that connects to LLM providers like Chappie.
+*   **Hibernate Tools:** A new module provides robust serialization of the entity metamodel and query results to JSON, which is crucial for providing accurate context to the LLM.
+
+And for the purists, don't worry! You can always disable the assistant features and use it as a classic, powerful HQL console.
+
+== Conclusion
+
+The new AI-powered HQL Console in Quarkus aims to significantly boost developer productivity by making database interaction more intuitive, faster, and more insightful. By bridging the gap between natural language and HQL, it lowers the barrier for exploring application data and allows developers to focus on building features, not on writing boilerplate queries.
+
+Fire up your Quarkus application in dev mode, open the Dev UI, and start conversing with your database today!
