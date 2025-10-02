@@ -33,6 +33,7 @@ import io.quarkus.hibernate.orm.dev.HibernateOrmDevController;
 import io.quarkus.hibernate.orm.dev.HibernateOrmDevInfo;
 import io.quarkus.hibernate.orm.runtime.customized.QuarkusConnectionProvider;
 import io.quarkus.runtime.LaunchMode;
+import io.quarkus.runtime.annotations.JsonRpcDescription;
 
 public class HibernateOrmDevJsonRpcService {
 
@@ -51,6 +52,7 @@ public class HibernateOrmDevJsonRpcService {
                 .orElse(null);
     }
 
+    @JsonRpcDescription("Get information about the available Hibernate ORM persistence units")
     public HibernateOrmDevInfo getInfo() {
         return HibernateOrmDevController.get().getInfo();
     }
@@ -69,6 +71,22 @@ public class HibernateOrmDevJsonRpcService {
 
     private Optional<HibernateOrmDevInfo.PersistenceUnit> findPersistenceUnit(String persistenceUnitName) {
         return getInfo().getPersistenceUnits().stream().filter(pu -> pu.getName().equals(persistenceUnitName)).findFirst();
+    }
+
+    /**
+     * Get the metamodel information (in JSON format) for the given persistence unit.
+     *
+     * @param persistenceUnit The name of the persistence unit
+     * @return the metamodel information in JSON format, or null if the persistence unit does not exist
+     */
+    @JsonRpcDescription("Get detailed information about a specific Hibernate ORM persistence unit's mapping metamodel (entities, embeddables, mapped-superclasses and their attributes)")
+    public String getMetamodelInformation(String persistenceUnit) {
+        Optional<HibernateOrmDevInfo.PersistenceUnit> pu = findPersistenceUnit(persistenceUnit);
+        if (pu.isEmpty()) {
+            return null;
+        }
+        SessionFactoryImplementor sf = pu.get().sessionFactory();
+        return MetamodelJsonSerializerImpl.INSTANCE.toString(sf.getMetamodel());
     }
 
     private static final String SYSTEM_MESSAGE = """
@@ -126,13 +144,19 @@ public class HibernateOrmDevJsonRpcService {
      * @param interactive Enable assistant's interactive mode, answering the original user request in natural language
      * @return a JsonRpcMessage containing the resulting {@link DataSet} serialized to JSON.
      */
+    @JsonRpcDescription("Execute an arbitrary Hibernate Query Language (HQL) query in the given persistence unit." +
+            " For selection queries, the results will be paginated if pageNumber and pageSize are not null." +
+            " For mutation statements, a custom message including the number of affected records is returned." +
+            " Optionally, you can automatically generate the HQL query based on a plain-text user input (by setting the assistant parameter to true). "
+            +
+            " When using the assistant, you can enable interactive mode to get a natural language answer to your original request instead of the raw query results (by setting the interactive parameter to true).")
     public CompletionStage<Map<String, String>> executeHQL(
-            String persistenceUnit,
-            String query,
-            Integer pageNumber,
-            Integer pageSize,
-            Boolean assistant,
-            Boolean interactive) {
+            @JsonRpcDescription("The name of the persistence unit in which to run the query") String persistenceUnit,
+            @JsonRpcDescription("The HQL query to execute (or a plain natural language request if using the assistant flag)") String query,
+            @JsonRpcDescription("Optional page number for select query pagination") Integer pageNumber,
+            @JsonRpcDescription("Optional page size for select query pagination") Integer pageSize,
+            @JsonRpcDescription("Optional flag to enable automatic HQL query generation from natural language") Boolean assistant,
+            @JsonRpcDescription("Optional flag to obtain a natural language answer to original request (assistant must also be enabled)") Boolean interactive) {
         if (!isDev) {
             return errorDataSet("This method is only allowed in dev mode");
         }
@@ -222,7 +246,7 @@ public class HibernateOrmDevJsonRpcService {
             Transaction transaction = session.beginTransaction();
             try {
                 Query<Object> query = session.createQuery(hql, null);
-                if (isMutation(((SqmQuery) query).getSqmStatement())) {
+                if (isMutation(((SqmQuery<?>) query).getSqmStatement())) {
                     // DML query, execute update within transaction and return custom message with affected rows
                     int updateCount = query.executeUpdate();
                     transaction.commit();
@@ -294,13 +318,10 @@ public class HibernateOrmDevJsonRpcService {
         appendIfNonNull(jsonBuilder, "message", dataSet.message());
         appendIfNonNull(jsonBuilder, "error", dataSet.error());
         jsonBuilder.append("}");
-
-        Map<String, String> map = Map.of(
+        return Map.of(
                 "response", jsonBuilder.toString(),
                 "messageType", "Response",
                 "alreadySerialized", "true");
-
-        return map;
     }
 
     private static void appendIfNonNull(StringBuilder sb, String fieldName, String value) {
