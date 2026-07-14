@@ -73,8 +73,7 @@ public final class QuarkusStrategySelectorBuilder {
         addImplicitNamingStrategies(strategySelector);
         addColumnOrderingStrategies(strategySelector);
         addCacheKeysFactories(strategySelector);
-        addJsonFormatMappers(strategySelector);
-        addXmlFormatMappers(strategySelector);
+        addFormatMappers(strategySelector);
 
         // Required to support well known extensions e.g. Envers
         // TODO: should we introduce a new integrator SPI to limit these to extensions supported by Quarkus?
@@ -211,25 +210,13 @@ public final class QuarkusStrategySelectorBuilder {
                 SimpleCacheKeysFactory.class);
     }
 
-    private static void addJsonFormatMappers(StrategySelectorImpl strategySelector) {
-        strategySelector.registerStrategyImplementor(
-                FormatMapper.class,
-                JacksonJsonFormatMapper.SHORT_NAME,
-                JacksonJsonFormatMapper.class);
-        strategySelector.registerStrategyImplementor(
-                FormatMapper.class,
-                JsonBJsonFormatMapper.SHORT_NAME,
-                JsonBJsonFormatMapper.class);
-    }
-
-    private static void addXmlFormatMappers(StrategySelectorImpl strategySelector) {
-        strategySelector.registerStrategyImplementor(
-                FormatMapper.class,
-                JacksonXmlFormatMapper.SHORT_NAME,
-                JacksonXmlFormatMapper.class);
-        strategySelector.registerStrategyImplementor(
-                FormatMapper.class,
-                JaxbXmlFormatMapper.SHORT_NAME,
-                JaxbXmlFormatMapper.class);
+    private static void addFormatMappers(StrategySelectorImpl strategySelector) {
+        strategySelector.registerStrategyLazily(FormatMapper.class, name -> switch (name) {
+            case "jackson" -> JacksonJsonFormatMapper.class;
+            case "jsonb" -> JsonBJsonFormatMapper.class;
+            case "jackson-xml" -> JacksonXmlFormatMapper.class;
+            case "jaxb" -> JaxbXmlFormatMapper.class;
+            default -> null;
+        });
     }
 }
